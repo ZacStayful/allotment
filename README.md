@@ -218,10 +218,19 @@ export DATABASE_URL="postgresql://user:pass@host:5432/postgres"
 
 ### On Vercel
 
-`api/index.py` is the entry point — Vercel's Python runtime wants a
-`BaseHTTPRequestHandler` subclass called `handler`, which is what the server
-already is, and `vercel.json` rewrites every route to it. Two environment
-variables:
+`api/index.py` is the entry point. **The runtime scans that file for a
+top-level `handler`, `app`, or `application`, and it looks for a definition** —
+`handler = server.Handler` is an assignment, invisible to that check, and the
+build then silently produces no function at all, so every path falls through to
+Vercel's own 404 while the deployment still reports READY. Hence the seemingly
+redundant subclass:
+
+```python
+class handler(server.Handler):
+    """The whole app, as the runtime expects to find it."""
+```
+
+`vercel.json` then rewrites every route to it. Two environment variables:
 
 | | |
 |---|---|
