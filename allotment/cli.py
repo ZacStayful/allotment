@@ -53,9 +53,16 @@ def cmd_init(args):
     db.set_setting(conn, "season_start", (args.season or date.today().isoformat()))
     email = args.email or config.DEFAULT_EMAIL
     if auth.get_user(conn, email) is None:
-        auth.create_user(conn, email, args.password or config.DEFAULT_PASSWORD,
-                         name=args.name, role="Both")
-        print("Created login for %s" % email)
+        users = conn.execute("SELECT email FROM users").fetchall()
+        if len(users) == 1:
+            # a single account whose address was mistyped is corrected, not duplicated
+            auth.rename(conn, users[0]["email"], email)
+            print("Login email changed from %s to %s (password unchanged)"
+                  % (users[0]["email"], email))
+        else:
+            auth.create_user(conn, email, args.password or config.DEFAULT_PASSWORD,
+                             name=args.name, role="Both")
+            print("Created login for %s" % email)
     print("Seeded: %(zones)d zones, %(crops)d crops, %(jobs)d jobs, %(stock)d stock lines"
           % counts)
     today = date.today()
@@ -435,6 +442,12 @@ def cmd_passwd(args):
 
 def cmd_user(args):
     conn = open_db(args)
+    if args.rename:
+        if not args.to:
+            sys.exit("--rename needs --to NEW_EMAIL")
+        n = auth.rename(conn, args.rename, args.to)
+        print("Renamed %s to %s" % (args.rename, args.to) if n else "No such user")
+        return
     if args.add:
         import getpass
         pw = args.password or getpass.getpass("Password: ")
@@ -565,10 +578,13 @@ def build_parser():
     s = sub.add_parser("user")
     s.add_argument("--add"), s.add_argument("--password"), s.add_argument("--name")
     s.add_argument("--role", default="Both")
+    s.add_argument("--rename", metavar="OLD_EMAIL", help="change an address")
+    s.add_argument("--to", metavar="NEW_EMAIL")
     s.set_defaults(fn=cmd_user)
 
     s = sub.add_parser("serve", help="the web view, with login")
-    s.add_argument("--host", default="127.0.0.1"), s.add_argument("--port", type=int, default=8765)
+    s.add_argument("--host", default=os.environ.get("ALLOTMENT_HOST", "127.0.0.1"))
+    s.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8765)))
     s.set_defaults(fn=cmd_serve)
 
     return p

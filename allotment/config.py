@@ -72,7 +72,7 @@ DB_PATH = os.environ.get(
 
 # Seed login. Used once, at `plot init`. Override with env vars, and change the
 # password afterwards with `plot passwd`.
-DEFAULT_EMAIL = os.environ.get("ALLOTMENT_EMAIL", "zac@stayul.co.uk")
+DEFAULT_EMAIL = os.environ.get("ALLOTMENT_EMAIL", "zac@stayful.co.uk")
 DEFAULT_PASSWORD = os.environ.get("ALLOTMENT_PASSWORD", "AIAllotment56")
 
 SESSION_HOURS = 24 * 14

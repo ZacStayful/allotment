@@ -82,6 +82,17 @@ text-transform:uppercase;margin-top:26px;border-top:1px solid var(--rule);paddin
 """
 
 
+# A leaf, drawn in the page's own colours. Inline so nothing has to be fetched -
+# without it every page load asks for /favicon.ico and gets a 404.
+FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+    '<rect width="32" height="32" fill="#111917"/>'
+    '<path d="M8 25C8 13 16 7 25 7c0 11-7 18-17 18z" fill="#8FC46B"/>'
+    '<path d="M8 25C12 19 18 14 25 11" stroke="#111917" stroke-width="2" fill="none"/>'
+    '</svg>')
+ROBOTS = "User-agent: *\nDisallow: /\n"
+
+
 def page(title, body, sess=None, path="/"):
     nav = ""
     if sess:
@@ -90,6 +101,7 @@ def page(title, body, sess=None, path="/"):
             for p, n in NAV) + '<a href="/logout" onclick="return confirm(\'Log out?\')">Log out</a></nav>'
     return ("<!doctype html><html lang=en><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<link rel=icon href='/favicon.ico' type='image/svg+xml'>"
             "<title>%s</title><style>%s</style></head><body><div class=wrap>"
             "<header><div><p class=sub>%s</p><h1>%s</h1></div></header>%s%s"
             "<p class=foot>Albert Village &middot; 11.4 x 11.4 m &middot; organic only "
@@ -460,6 +472,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parts = urllib.parse.urlsplit(self.path)
         path, q = parts.path, urllib.parse.parse_qs(parts.query)
+        # served without a session: a browser asks for these before you log in
+        if path == "/favicon.ico":
+            return self._send(FAVICON, ctype="image/svg+xml",
+                              headers=[("Cache-Control", "max-age=86400")])
+        if path == "/robots.txt":
+            return self._send(ROBOTS, ctype="text/plain; charset=utf-8")
+        if path in ("/index.html", "/index.htm"):
+            return self._redirect("/")
+        if path == "/healthz":
+            return self._send("ok", ctype="text/plain; charset=utf-8")
+
         conn = self._conn()
         try:
             sess = auth.session(conn, self._cookie())
@@ -473,13 +496,27 @@ class Handler(BaseHTTPRequestHandler):
                                                   "plot_session=; Max-Age=0; Path=/")])
             if path == "/map":
                 return self._send(view_map(conn, sess, q))
+            if path.startswith("/static/"):
+                return self._static(path[len("/static/"):])
             fn = VIEWS.get(path)
             if fn is None:
-                return self._send(page("Not here", "<p>No such page.</p>", sess, path), 404)
+                return self._send(page("Not here", not_found(path), sess, path), 404)
             title = dict(NAV).get(path, "Plot")
             return self._send(page(title, fn(conn, sess, q), sess, path))
         finally:
             conn.close()
+
+    def _static(self, rel):
+        """Files from allotment/static, and nothing outside it."""
+        full = os.path.realpath(os.path.join(STATIC, rel))
+        if not full.startswith(os.path.realpath(STATIC) + os.sep) or not os.path.isfile(full):
+            return self._send(page("Not here", not_found("/static/" + rel)), 404)
+        ctype = {".html": "text/html; charset=utf-8", ".css": "text/css",
+                 ".js": "text/javascript", ".svg": "image/svg+xml",
+                 ".png": "image/png", ".jpg": "image/jpeg"}.get(
+                     os.path.splitext(full)[1], "application/octet-stream")
+        with open(full, "rb") as fh:
+            return self._send(fh.read(), ctype=ctype)
 
     # -- POST -------------------------------------------------------------
     def do_POST(self):
@@ -511,6 +548,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(handler(conn, sess, form) or "/")
         finally:
             conn.close()
+
+
+def not_found(path):
+    return ('<p>There is no page at <code>%s</code>.</p>'
+            '<p>%s</p>' % (e(path), " &middot; ".join(
+                '<a href="%s" style="color:var(--sun)">%s</a>' % (p, n) for p, n in NAV)))
 
 
 def login_page(msg=None):
@@ -580,7 +623,11 @@ def serve(host="127.0.0.1", port=8765, db_path=None):
     auth.purge(conn)
     conn.close()
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print("Plot running on http://%s:%d  (Ctrl-C to stop)" % (host, port))
+    shown = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    print("Plot running on http://%s:%d  (Ctrl-C to stop)" % (shown, port))
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print("Bound to %s - reachable from the network. Plain HTTP, so put TLS in "
+              "front of it before it leaves your own machine." % host)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

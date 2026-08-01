@@ -49,6 +49,17 @@ def get_user(conn, email):
     return conn.execute("SELECT * FROM users WHERE email=?", (normalise(email),)).fetchone()
 
 
+def rename(conn, old_email, new_email):
+    """Change an address without touching the password or the sessions."""
+    old, new = normalise(old_email), normalise(new_email)
+    if get_user(conn, new) is not None:
+        raise ValueError("%s is already registered" % new)
+    cur = conn.execute("UPDATE users SET email=? WHERE email=?", (new, old))
+    conn.execute("UPDATE login_attempts SET email=? WHERE email=?", (new, old))
+    conn.commit()
+    return cur.rowcount
+
+
 def locked_out(conn, email):
     row = conn.execute("SELECT * FROM login_attempts WHERE email=?",
                        (normalise(email),)).fetchone()

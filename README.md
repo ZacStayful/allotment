@@ -39,7 +39,12 @@ all of them.
 ```bash
 ./plot passwd                       # prompts, or --password
 ./plot user --add someone@example.com
+./plot user --rename old@example.com --to new@example.com
 ```
+
+The seeded address is `zac@stayful.co.uk`. If a database was created with a
+different one, `plot init` points the single existing account at the configured
+address rather than making a second account; the password is unchanged.
 
 The seed credentials are in `allotment/config.py` and can be overridden with the
 `ALLOTMENT_EMAIL` and `ALLOTMENT_PASSWORD` environment variables. Passwords are
@@ -47,7 +52,11 @@ stored as PBKDF2-HMAC-SHA256 with 240,000 iterations and a per-user salt, never
 in plain text. Sessions are server-side, HttpOnly, and every form carries a CSRF
 token; eight bad attempts locks the account for fifteen minutes.
 
-`plot serve` binds to 127.0.0.1 and speaks plain HTTP. That is right for a
+`plot serve` binds to 127.0.0.1 on port 8765, overridable with `--host`,
+`--port`, or the `ALLOTMENT_HOST` and `PORT` environment variables. A preview or
+container that proxies from outside needs `--host 0.0.0.0`.
+
+It speaks plain HTTP. That is right for a
 machine on your own network. **Do not expose it to the internet without a TLS
 reverse proxy in front of it** — a password over plain HTTP is a password in
 public.
@@ -75,6 +84,7 @@ public.
 | `plot permission` | log written permission — unblocks all structure jobs |
 | `plot ban` / `plot ban --off` | hosepipe ban on or off |
 | `plot serve` | the web view |
+| `plot user --rename a@b.c --to d@e.f` | change a login address |
 
 Global flags go before the subcommand: `plot --offline today`,
 `plot --db /path/x.db today`.
@@ -183,8 +193,21 @@ allotment/
   auth.py        PBKDF2, sessions, CSRF, lockout
   server.py      the web view
   cli.py         `plot`
-tests/           59 tests
+tests/           67 tests
 ```
+
+## Routes
+
+| | |
+|---|---|
+| `/` `/week` `/map` `/stock` `/shop` `/money` `/time` `/report` | the app, behind the login |
+| `/login` `/logout` | session in and out |
+| `/favicon.ico` `/robots.txt` `/healthz` | served without a login |
+| `/static/<file>` | files from `allotment/static`, and nothing above it |
+
+Anything else returns a 404 page with links back. `/favicon.ico` matters more
+than it looks: a browser asks for it on every page load, so without it the
+console fills with errors on a site that is working perfectly.
 
 ## Tests
 

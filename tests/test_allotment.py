@@ -449,6 +449,93 @@ class TestAuth(Base):
                                          "a new long password"))
 
 
+class TestServerRoutes(Base):
+    """A browser asks for /favicon.ico on every page load. If that 404s, the
+    console fills with errors on a site that is working perfectly."""
+
+    def setUp(self):
+        super().setUp()
+        import threading
+        from http.server import ThreadingHTTPServer
+        from allotment import server
+        auth.create_user(self.conn, "zac@example.com", "correct horse battery")
+        server.DB_PATH = self.path
+        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
+        self.port = self.httpd.server_address[1]
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+        super().tearDown()
+
+    def get(self, path, cookie=None):
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path))
+        if cookie:
+            req.add_header("Cookie", cookie)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.read(), r.headers
+        except urllib.error.HTTPError as err:
+            return err.code, err.read(), err.headers
+
+    def session_cookie(self):
+        user = auth.get_user(self.conn, "zac@example.com")
+        token, _ = auth.create_session(self.conn, user["id"])
+        return "plot_session=" + token
+
+    def test_favicon_is_served_without_a_login(self):
+        status, body, headers = self.get("/favicon.ico")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "image/svg+xml")
+        self.assertIn(b"<svg", body)
+
+    def test_robots_and_health_need_no_login(self):
+        self.assertEqual(self.get("/robots.txt")[0], 200)
+        self.assertEqual(self.get("/healthz")[0], 200)
+
+    def test_every_nav_page_answers(self):
+        from allotment.server import NAV
+        cookie = self.session_cookie()
+        for path, name in NAV:
+            self.assertEqual(self.get(path, cookie)[0], 200, "%s (%s)" % (path, name))
+
+    def test_static_files_are_served_but_nothing_above_them(self):
+        cookie = self.session_cookie()
+        self.assertEqual(self.get("/static/map.html", cookie)[0], 200)
+        for attempt in ("/static/../config.py", "/static/..%2fconfig.py",
+                        "/static/%2e%2e/db.py"):
+            self.assertEqual(self.get(attempt, cookie)[0], 404, attempt)
+
+    def test_unknown_page_gives_a_404_with_a_way_back(self):
+        status, body, _ = self.get("/nonsense", self.session_cookie())
+        self.assertEqual(status, 404)
+        self.assertIn(b'href="/week"', body)
+
+    def test_pages_require_a_session(self):
+        status, _, headers = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Sign in", self.get("/login")[1])
+
+
+class TestEmailRename(Base):
+    def test_rename_keeps_the_password(self):
+        auth.create_user(self.conn, "zac@stayul.co.uk", "correct horse battery")
+        auth.rename(self.conn, "zac@stayul.co.uk", "zac@stayful.co.uk")
+        self.assertIsNone(auth.get_user(self.conn, "zac@stayul.co.uk"))
+        self.assertIsNotNone(auth.verify(self.conn, "zac@stayful.co.uk",
+                                         "correct horse battery"))
+
+    def test_rename_onto_an_existing_address_is_refused(self):
+        auth.create_user(self.conn, "a@example.com", "password one")
+        auth.create_user(self.conn, "b@example.com", "password two")
+        with self.assertRaises(ValueError):
+            auth.rename(self.conn, "a@example.com", "b@example.com")
+
+
 class TestSeed(Base):
     def test_seeding_twice_changes_nothing(self):
         before = self.conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
