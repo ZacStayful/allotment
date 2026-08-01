@@ -198,11 +198,26 @@ DDL_PRAGMA = re.compile(r"^\s*PRAGMA[^;]*;", re.I | re.M)
 
 
 def schema_for_postgres(schema=None):
+    """The tables only. Creating the schema they live in is a separate step,
+    because it needs a privilege the rest of this does not - see ensure_schema."""
     sql = DDL_PRAGMA.sub("", SCHEMA)
     sql = sql.replace("id INTEGER PRIMARY KEY,", "id SERIAL PRIMARY KEY,")
-    sql = re.sub(r"\bREAL\b", "double precision", sql)
-    head = "CREATE SCHEMA IF NOT EXISTS %s;\n" % (schema or PG_SCHEMA)
-    return head + sql
+    return re.sub(r"\bREAL\b", "double precision", sql)
+
+
+def ensure_schema(conn):
+    """Create the schema, but only if it is actually missing.
+
+    CREATE SCHEMA IF NOT EXISTS is not free to attempt: Postgres checks CREATE on
+    the *database* before it checks whether the schema is there, so a role that
+    owns its schema and needs nothing else still fails with "permission denied
+    for database postgres" every time it starts. Asking first means the app can
+    run with no database-level rights at all, which is what it should have."""
+    seen = conn.execute("SELECT 1 ok FROM information_schema.schemata "
+                        "WHERE schema_name=?", (conn.schema,)).fetchone()
+    if not seen:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS %s" % conn.schema)
+        conn.commit()
 
 
 class PgCursor:
@@ -416,6 +431,7 @@ def is_postgres(conn):
 
 def init(conn):
     if is_postgres(conn):
+        ensure_schema(conn)
         conn.executescript(schema_for_postgres(conn.schema))
     else:
         conn.executescript(SCHEMA)
