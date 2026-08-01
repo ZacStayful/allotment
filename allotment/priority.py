@@ -200,9 +200,19 @@ def risks(conn, wx, today=None):
             out.append(("Winter attendance", "%d%% of planned winter visits - the honest "
                         "signal" % wa))
 
-    for n in stock.upcoming_needs(conn, today, 14):
-        if n["have"] <= 0:
-            out.append(("Stock", "No %s and %s is due %s" % (n["item"], n["job"], n["due"])))
+    # One line, however many. Eight separate warnings that you have not bought
+    # eight things yet is a wall of red above the jobs, on the one screen that
+    # exists to say what to do today. The Shop page is where the list belongs.
+    missing = [n for n in stock.upcoming_needs(conn, today, 14) if n["have"] <= 0]
+    if len(missing) == 1:
+        n = missing[0]
+        out.append(("Stock", "No %s and %s is due %s" % (n["item"], n["job"], n["due"])))
+    elif missing:
+        items = ", ".join(n["item"] for n in missing[:3])
+        if len(missing) > 3:
+            items += " and %d more" % (len(missing) - 3)
+        out.append(("Stock", "%d things to buy before jobs come due - %s. See Shop"
+                    % (len(missing), items)))
 
     return out
 

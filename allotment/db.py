@@ -31,7 +31,7 @@ PG_SCHEMA = os.environ.get("ALLOTMENT_PG_SCHEMA", "allotment")
 ID_TABLES = {
     "users", "zones", "crops", "jobs", "job_runs", "visits", "harvests",
     "plantings", "spend", "stock", "stock_moves", "receipts", "receipt_lines",
-    "assets", "asset_events", "weed_observations", "trouble_pins",
+    "assets", "asset_events", "weed_observations", "trouble_pins", "photos",
 }
 
 SCHEMA = """
@@ -156,6 +156,16 @@ CREATE TABLE IF NOT EXISTS rotation (
   year INTEGER NOT NULL, zone_id TEXT NOT NULL, family_group TEXT NOT NULL,
   PRIMARY KEY (year, zone_id));
 
+-- Photos live in the database rather than on disk, because the hosted copy has
+-- no disk that survives a request. `subject` is free text - "receipt:12",
+-- "job:build-tunnel", "zone:bed-1", "problem" - deliberately not a foreign key,
+-- so a photo outlives whatever it was taken of.
+CREATE TABLE IF NOT EXISTS photos (
+  id INTEGER PRIMARY KEY, taken TEXT NOT NULL, subject TEXT NOT NULL,
+  caption TEXT, mime TEXT NOT NULL, bytes BLOB NOT NULL, size INTEGER NOT NULL,
+  width INTEGER, height INTEGER);
+
+CREATE INDEX IF NOT EXISTS idx_photos_subject ON photos(subject, taken);
 CREATE INDEX IF NOT EXISTS idx_runs_due ON job_runs(due_date, status);
 CREATE INDEX IF NOT EXISTS idx_moves_stock ON stock_moves(stock_id);
 CREATE INDEX IF NOT EXISTS idx_spend_date ON spend(date);
@@ -202,7 +212,8 @@ def schema_for_postgres(schema=None):
     because it needs a privilege the rest of this does not - see ensure_schema."""
     sql = DDL_PRAGMA.sub("", SCHEMA)
     sql = sql.replace("id INTEGER PRIMARY KEY,", "id SERIAL PRIMARY KEY,")
-    return re.sub(r"\bREAL\b", "double precision", sql)
+    sql = re.sub(r"\bREAL\b", "double precision", sql)
+    return re.sub(r"\bBLOB\b", "bytea", sql)
 
 
 def ensure_schema(conn):

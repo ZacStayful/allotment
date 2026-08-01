@@ -471,6 +471,96 @@ class TestAuth(Base):
                                          "a new long password"))
 
 
+GIF = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
+       b"\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02"
+       b"\x02D\x01\x00;")
+
+
+def multipart_body(fields, files=(), bound="----plotTESTboundary"):
+    """What a browser sends. Built by hand so the parser is tested against the
+    wire format rather than against another copy of itself."""
+    out = []
+    for k, v in fields.items():
+        out.append(('--%s\r\nContent-Disposition: form-data; name="%s"\r\n\r\n%s\r\n'
+                    % (bound, k, v)).encode("utf-8"))
+    for name, filename, ctype, data in files:
+        out.append(('--%s\r\nContent-Disposition: form-data; name="%s"; filename="%s"\r\n'
+                    'Content-Type: %s\r\n\r\n' % (bound, name, filename, ctype)).encode("utf-8"))
+        out.append(data + b"\r\n")
+    out.append(("--%s--\r\n" % bound).encode("utf-8"))
+    return b"".join(out), "multipart/form-data; boundary=%s" % bound
+
+
+class TestMultipart(unittest.TestCase):
+    """A photo is bytes that must arrive byte-identical. `cgi` did this until it
+    was removed in 3.13, and `email` wants to treat everything as text."""
+
+    def test_fields_and_a_file_come_back_apart(self):
+        from allotment import multipart
+        body, ctype = multipart_body(
+            {"vendor": "Wickes", "total": "42.50"},
+            [("photo", "till.png", "image/png", GIF)])
+        parts = multipart.parse(body, ctype)
+        self.assertEqual(parts["vendor"].text, "Wickes")
+        self.assertEqual(parts["total"].text, "42.50")
+        self.assertFalse(parts["vendor"].is_file)
+        self.assertTrue(parts["photo"].is_file)
+        self.assertEqual(parts["photo"].content_type, "image/png")
+        self.assertEqual(parts["photo"].filename, "till.png")
+
+    def test_the_bytes_survive_exactly(self):
+        from allotment import multipart
+        blob = bytes(range(256)) * 40 + b"\r\n--not-really-a-boundary\r\n"
+        body, ctype = multipart_body({}, [("photo", "x.jpg", "image/jpeg", blob)])
+        self.assertEqual(multipart.parse(body, ctype)["photo"].data, blob)
+
+    def test_an_untouched_file_input_does_not_erase_a_real_one(self):
+        """Browsers send an empty part for a file field left alone."""
+        from allotment import multipart
+        body, ctype = multipart_body(
+            {}, [("photo", "real.jpg", "image/jpeg", GIF), ("photo", "", "", b"")])
+        self.assertEqual(multipart.parse(body, ctype)["photo"].data, GIF)
+
+    def test_a_form_with_no_boundary_is_not_a_crash(self):
+        from allotment import multipart
+        self.assertEqual(multipart.parse(b"whatever", "multipart/form-data"), {})
+
+
+class TestPhotos(Base):
+
+    def test_a_photo_survives_the_round_trip(self):
+        from allotment import photos
+        pid = photos.add(self.conn, "receipt", 7, GIF, "image/jpeg", caption="Wickes")
+        got = photos.get(self.conn, pid)
+        self.assertEqual(got["bytes"], GIF)
+        self.assertEqual(got["mime"], "image/jpeg")
+        self.assertEqual(got["subject"], "receipt:7")
+        self.assertEqual(got["size"], len(GIF))
+
+    def test_photos_are_found_by_what_they_are_of(self):
+        from allotment import photos
+        photos.add(self.conn, "zone", "bed-1", GIF, "image/jpeg")
+        photos.add(self.conn, "zone", "bed-2", GIF, "image/jpeg")
+        self.assertEqual(len(photos.of(self.conn, "zone", "bed-1")), 1)
+        self.assertEqual(len(photos.of(self.conn, "zone", "bed-9")), 0)
+        self.assertEqual(photos.counts(self.conn)["zone"], 2)
+
+    def test_it_refuses_things_that_are_not_photographs(self):
+        from allotment import photos
+        with self.assertRaises(ValueError):
+            photos.add(self.conn, "problem", None, b"MZ\x90\x00", "application/x-msdownload")
+        with self.assertRaises(ValueError):
+            photos.add(self.conn, "problem", None, b"", "image/jpeg")
+        with self.assertRaises(ValueError):
+            photos.add(self.conn, "problem", None,
+                       b"x" * (photos.MAX_BYTES + 1), "image/jpeg")
+
+    def test_an_unknown_subject_is_refused_rather_than_stored(self):
+        from allotment import photos
+        with self.assertRaises(ValueError):
+            photos.add(self.conn, "spaceship", None, GIF, "image/jpeg")
+
+
 class TestDatabaseDiagnosis(unittest.TestCase):
     """The failure that reads as something else. An IPv6-only host on a server
     with no IPv6 route reports a plain timeout, which sends you looking at
@@ -587,6 +677,65 @@ class TestServerRoutes(Base):
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Type"], "image/svg+xml")
         self.assertIn(b"<svg", body)
+
+    def post(self, path, body, ctype, cookie):
+        import urllib.error
+        import urllib.request
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path),
+                                     data=body, method="POST")
+        req.add_header("Content-Type", ctype)
+        req.add_header("Cookie", cookie)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.read(), r.headers
+        except urllib.error.HTTPError as err:
+            return err.code, err.read(), err.headers
+
+    def test_a_receipt_photo_goes_up_and_comes_back(self):
+        from allotment import photos
+        cookie = self.session_cookie()
+        csrf = self.conn.execute("SELECT csrf FROM sessions").fetchone()["csrf"]
+        body, ctype = multipart_body(
+            {"csrf": csrf, "vendor": "Wickes", "total": "42.50",
+             "budget_line": "beds", "date": "2026-08-01"},
+            [("photo", "till.jpg", "image/jpeg", GIF)])
+        self.assertEqual(self.post("/receipt", body, ctype, cookie)[0], 200)
+
+        shot = photos.recent(self.conn)[0]
+        self.assertEqual(shot["subject"].split(":")[0], "receipt")
+        status, served, headers = self.get("/photo/%d" % shot["id"], cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(served, GIF)                    # byte for byte
+        self.assertEqual(headers["Content-Type"], "image/jpeg")
+
+        spend = self.conn.execute("SELECT * FROM spend").fetchall()
+        self.assertEqual([(s["amount"], s["budget_line"]) for s in spend],
+                         [(42.5, "beds")])
+        receipt = self.conn.execute("SELECT * FROM receipts").fetchone()
+        self.assertEqual((receipt["vendor"], receipt["total"]), ("Wickes", 42.5))
+
+    def test_a_photo_is_not_served_to_someone_without_a_session(self):
+        from allotment import photos
+        pid = photos.add(self.conn, "problem", None, GIF, "image/jpeg")
+        status, body, _ = self.get("/photo/%d" % pid)   # urlopen follows the 303
+        self.assertEqual(status, 200)
+        self.assertNotIn(GIF, body)
+        self.assertIn(b"Sign in", body)
+
+    def test_a_bad_upload_does_not_lose_the_job_it_came_with(self):
+        """Photographing is never the point of the form it is on."""
+        cookie = self.session_cookie()
+        csrf = self.conn.execute("SELECT csrf FROM sessions").fetchone()["csrf"]
+        rules.ensure_runs(self.conn, date.today(), date.today())
+        run = self.conn.execute("SELECT id, job_id FROM job_runs LIMIT 1").fetchone()
+        body, ctype = multipart_body(
+            {"csrf": csrf, "run_id": str(run["id"]), "job_id": run["job_id"]},
+            [("photo", "virus.exe", "application/x-msdownload", b"MZ\x90\x00")])
+        self.assertEqual(self.post("/done", body, ctype, cookie)[0], 200)
+        done = self.conn.execute("SELECT status FROM job_runs WHERE id=?",
+                                 (run["id"],)).fetchone()
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(len(self.conn.execute("SELECT id FROM photos").fetchall()), 0)
 
     def test_overlapping_requests_never_strand_the_connection_lock(self):
         """The shared connection is taken under a lock held for the whole request.
