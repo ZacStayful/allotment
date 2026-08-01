@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+import urllib.parse
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -523,6 +524,24 @@ class TestDatabaseDiagnosis(unittest.TestCase):
         self.assertNotIn(self.SECRET, why)
         self.assertNotIn("SECOND LINE", why)
         self.assertIn("projectref", why)     # a bare user name on the pooler
+
+    def test_the_regions_other_poolers_are_offered_in_order(self):
+        url = ("postgresql://app.abc:%s@aws-2-eu-central-1.pooler.supabase.com"
+               ":5432/postgres?sslmode=require" % self.SECRET)
+        others = db.sibling_poolers(url)
+        hosts = [urllib.parse.urlsplit(u).hostname for u in others]
+        self.assertEqual(hosts, ["aws-0-eu-central-1.pooler.supabase.com",
+                                 "aws-1-eu-central-1.pooler.supabase.com",
+                                 "aws-3-eu-central-1.pooler.supabase.com"])
+        for u in others:                      # everything else survives the swap
+            bits = urllib.parse.urlsplit(u)
+            self.assertEqual((bits.username, bits.password, bits.port, bits.query),
+                             ("app.abc", self.SECRET, 5432, "sslmode=require"))
+
+    def test_a_host_that_is_not_a_pooler_has_no_siblings_to_try(self):
+        self.assertEqual(db.sibling_poolers("postgresql://a:b@localhost:5432/x"), [])
+        self.assertEqual(
+            db.sibling_poolers("postgresql://a:b@db.abc.supabase.co:5432/x"), [])
 
 
 class TestServerRoutes(Base):

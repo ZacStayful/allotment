@@ -12,6 +12,7 @@ import os
 import re
 import socket
 import sqlite3
+import sys
 import urllib.parse
 
 from . import config
@@ -227,6 +228,38 @@ class PgCursor:
         return iter(self._cur)
 
 
+POOLER_HOST = re.compile(r"^aws-(\d+)-([a-z0-9-]+)\.pooler\.supabase\.com$", re.I)
+POOLER_CLUSTERS = 4
+TENANT_MISSING = "not found"
+
+
+def sibling_poolers(url):
+    """The same connection string on the region's other pooler clusters.
+
+    A Supabase project sits on one of several poolers in its region, numbered
+    aws-0, aws-1 and so on, and only the dashboard says which. Point at the wrong
+    one and it answers - it is a real host - with "tenant or user not found",
+    which reads exactly like a bad user name and sends you to change the one
+    thing that was already right.
+
+    Rather than have someone guess, try the siblings. There are a handful, they
+    are in the same region, and a wrong one fails immediately.
+    """
+    bits = urllib.parse.urlsplit(url)
+    m = POOLER_HOST.match(bits.hostname or "")
+    if not m:
+        return []
+    here, region = int(m.group(1)), m.group(2)
+    out = []
+    for n in range(POOLER_CLUSTERS):
+        if n == here:
+            continue
+        host = "aws-%d-%s.pooler.supabase.com" % (n, region)
+        netloc = bits.netloc.replace(bits.hostname, host, 1)
+        out.append(urllib.parse.urlunsplit(bits._replace(netloc=netloc)))
+    return out
+
+
 class PgConnection:
     """Wraps psycopg2 so it answers to the sqlite3 connection API this code uses."""
 
@@ -236,13 +269,35 @@ class PgConnection:
                 "DATABASE_URL is set but psycopg2 is not installed. "
                 "pip install psycopg2-binary, or unset DATABASE_URL to use SQLite.")
         self.schema = schema or PG_SCHEMA
-        self._conn = psycopg2.connect(
-            url, options="-c search_path=%s,public" % self.schema,
-            connect_timeout=int(os.environ.get("ALLOTMENT_PG_TIMEOUT", 10)))
+        self._conn = self._open(url)
         self._conn.autocommit = False
         with self._conn.cursor() as c:                # belt and braces: some poolers
             c.execute("SET search_path TO %s, public" % self.schema)   # drop the option
         self._conn.commit()
+
+    def _open(self, url):
+        try:
+            return self._dial(url)
+        except psycopg2.OperationalError as first:
+            if TENANT_MISSING not in str(first).lower():
+                raise
+            for other in sibling_poolers(url):
+                try:
+                    conn = self._dial(other)
+                except psycopg2.OperationalError:
+                    continue
+                host = urllib.parse.urlsplit(other).hostname
+                sys.stderr.write(
+                    "DATABASE_URL names a pooler this project is not on. Connected "
+                    "via %s instead - set DATABASE_URL to that host to stop paying "
+                    "for the retry on every cold start.\n" % host)
+                return conn
+            raise
+
+    def _dial(self, url):
+        return psycopg2.connect(
+            url, options="-c search_path=%s,public" % self.schema,
+            connect_timeout=int(os.environ.get("ALLOTMENT_PG_TIMEOUT", 10)))
 
     def execute(self, sql, params=()):
         sql, returning = to_postgres(sql)
@@ -321,10 +376,17 @@ def diagnose(url=None, exc=None):
     said = redact(exc, url).strip().splitlines()
     said = (" It said: %s" % said[0][:200]) if said and said[0] else ""
     hint = ""
-    if ".pooler.supabase.com" in host and "." not in (urllib.parse.urlsplit(url).username or "."):
-        hint = (" Supabase's pooler wants the project reference on the end of the "
-                "user name, as user.projectref - a bare user name is rejected as "
-                "an unknown tenant.")
+    if ".pooler.supabase.com" in host:
+        user = urllib.parse.urlsplit(url).username or ""
+        if "." not in user:
+            hint = (" Supabase's pooler wants the project reference on the end of "
+                    "the user name, as user.projectref - a bare user name is "
+                    "rejected as an unknown tenant.")
+        elif TENANT_MISSING in redact(exc, url).lower():
+            hint = (" The user name looks right, so it is the host: a project is on "
+                    "one of the region's poolers and the others answer \"not found\" "
+                    "for it. Supabase's Connect panel names the one to use. Every "
+                    "sibling of %s was tried before giving up." % host)
     return ("Reached the name %s on port %d, but the database did not accept the "
             "connection.%s That is usually the user name or the password.%s"
             % (host, port, said, hint))
