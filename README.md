@@ -258,6 +258,30 @@ page telling you what is missing, rather than a 500 or Vercel's own 404.
 `/tmp` is wiped between cold starts. Marking a job done would appear to work and
 then vanish, which is worse than not deploying it at all.
 
+### On Supabase
+
+Four things stood between a correct connection string and a working site, and
+each one failed in a way that pointed at a different one. The setup page now
+names whichever it is, in words, rather than showing an exception:
+
+1. **The pooler, not the direct host.** `db.<ref>.supabase.co` publishes an AAAA
+   record and no A record, and a Vercel function has no IPv6 route. Connect >
+   Session pooler gives a `*.pooler.supabase.com` host, which is on IPv4.
+2. **The right pooler.** A project sits on one of the region's poolers — `aws-0`,
+   `aws-1` — and the others are real hosts that answer `tenant or user not
+   found`, which reads exactly like a bad user name. The app tries the siblings
+   and logs the one that worked; set `DATABASE_URL` to it to skip the retry.
+   The user name needs the project reference on it: `user.projectref`.
+3. **No `CREATE` on the database.** Postgres checks that privilege before it
+   checks whether the schema exists, so `CREATE SCHEMA IF NOT EXISTS` is refused
+   for a role that needs nothing of the sort. The app looks first and creates
+   only what is missing, so it can run with no database-level rights.
+4. **The app owns its tables.** `CREATE INDEX` requires ownership, so tables
+   created by an admin role leave the app failing with `must be owner of table`.
+   Create them as the app's role, or hand them over afterwards.
+
+The role wants `USAGE` and `CREATE` on its own schema, and nothing outside it.
+
 ## Routes
 
 | | |
