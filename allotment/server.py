@@ -478,7 +478,7 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_db_error(self, exc):
         if not db.DATABASE_URL and DB_PATH is None:
             return self._send(setup_page(), 503)
-        why = db.diagnose() or "%s" % type(exc).__name__
+        why = db.diagnose(exc=exc) or "%s" % type(exc).__name__
         return self._send(setup_page("The database is configured but did not "
                                      "answer. " + why), 503)
 

@@ -508,6 +508,22 @@ class TestDatabaseDiagnosis(unittest.TestCase):
     def test_no_url_is_not_a_fault(self):
         self.assertIsNone(db.diagnose(""))
 
+    def test_the_servers_own_words_come_through_without_the_password(self):
+        import socket
+        url = "postgresql://app:%s@aws-0-eu-central-1.pooler.supabase.com:5432/x" % self.SECRET
+        real = socket.getaddrinfo
+        socket.getaddrinfo = lambda *a, **k: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 5432))]
+        try:
+            why = db.diagnose(url, Exception(
+                "connection failed: password %s rejected\nSECOND LINE" % self.SECRET))
+        finally:
+            socket.getaddrinfo = real
+        self.assertIn("rejected", why)
+        self.assertNotIn(self.SECRET, why)
+        self.assertNotIn("SECOND LINE", why)
+        self.assertIn("projectref", why)     # a bare user name on the pooler
+
 
 class TestServerRoutes(Base):
     """A browser asks for /favicon.ico on every page load. If that 404s, the

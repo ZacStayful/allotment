@@ -270,7 +270,21 @@ class PgConnection:
         self._conn.close()
 
 
-def diagnose(url=None):
+def redact(text, url=None):
+    """The password, wherever it appears, replaced. Postgres error messages do not
+    normally quote it, but this is not a thing to leave to normally."""
+    url = url or DATABASE_URL or ""
+    try:
+        pw = urllib.parse.urlsplit(url).password
+    except ValueError:
+        pw = None
+    text = str(text)
+    for form in filter(None, (pw, urllib.parse.quote(pw or "", safe=""))):
+        text = text.replace(form, "***")
+    return text
+
+
+def diagnose(url=None, exc=None):
     """Why a connection to `url` failed, in words, or None if nothing is obviously
     wrong with it.
 
@@ -304,9 +318,16 @@ def diagnose(url=None):
                 "can only reach IPv4. Use %s instead: in Supabase, Connect > "
                 "Session pooler gives a connection string on a "
                 "*.pooler.supabase.com host, which answers on IPv4." % (host, pooled))
+    said = redact(exc, url).strip().splitlines()
+    said = (" It said: %s" % said[0][:200]) if said and said[0] else ""
+    hint = ""
+    if ".pooler.supabase.com" in host and "." not in (urllib.parse.urlsplit(url).username or "."):
+        hint = (" Supabase's pooler wants the project reference on the end of the "
+                "user name, as user.projectref - a bare user name is rejected as "
+                "an unknown tenant.")
     return ("Reached the name %s on port %d, but the database did not accept the "
-            "connection. That is usually the password, or an IP restriction on "
-            "the database." % (host, port))
+            "connection.%s That is usually the user name or the password.%s"
+            % (host, port, said, hint))
 
 
 def connect(path=None, url=None):
