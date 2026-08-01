@@ -478,8 +478,9 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_db_error(self, exc):
         if not db.DATABASE_URL and DB_PATH is None:
             return self._send(setup_page(), 503)
+        why = db.diagnose() or "%s" % type(exc).__name__
         return self._send(setup_page("The database is configured but did not "
-                                     "answer: %s" % type(exc).__name__), 503)
+                                     "answer. " + why), 503)
 
     # -- GET --------------------------------------------------------------
     def do_GET(self):
@@ -607,11 +608,14 @@ def setup_page(detail=None):
         "<h2>To finish setting it up</h2>"
         "<p>Set <code>DATABASE_URL</code> in the project's environment variables to "
         "your Postgres connection string, then redeploy.</p>"
-        "<p><strong>Two things catch people out.</strong> A variable has to be "
+        "<p><strong>Three things catch people out.</strong> A variable has to be "
         "ticked for the environment this deployment runs in - a branch or preview "
-        "URL does not read Production-only variables. And variables are baked in at "
+        "URL does not read Production-only variables. Variables are baked in at "
         "build time, so an existing deployment will not pick one up until it is "
-        "redeployed.</p>"
+        "redeployed. And on Supabase the connection string has to be the "
+        "<em>pooler</em> one, from Connect &gt; Session pooler: the direct "
+        "<code>db.&lt;ref&gt;.supabase.co</code> host is IPv6-only and a serverless "
+        "function cannot reach it.</p>"
         + _env_report() +
         "<p>Running it on your own machine instead? <code>./plot init</code> then "
         "<code>./plot serve</code> uses a local SQLite file and needs none of this.</p>"

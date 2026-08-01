@@ -10,7 +10,9 @@ disagree.
 import json
 import os
 import re
+import socket
 import sqlite3
+import urllib.parse
 
 from . import config
 
@@ -266,6 +268,45 @@ class PgConnection:
 
     def close(self):
         self._conn.close()
+
+
+def diagnose(url=None):
+    """Why a connection to `url` failed, in words, or None if nothing is obviously
+    wrong with it.
+
+    Written for one failure in particular, because it is the one that costs an
+    afternoon. Supabase's direct host, db.<ref>.supabase.co, publishes an AAAA
+    record and no A record. Vercel's functions have no IPv6 route, so the
+    connection cannot be made at all and psycopg2 reports a timeout - which reads
+    like a firewall, a wrong password, or a sleeping database, and is none of
+    those. The remedy is the pooler host, which is on IPv4.
+
+    Never returns any part of the password: the host and port only.
+    """
+    url = url or DATABASE_URL
+    if not url:
+        return None
+    try:
+        bits = urllib.parse.urlsplit(url)
+        host, port = bits.hostname, bits.port or 5432
+    except ValueError:
+        return "DATABASE_URL is not a URL that can be parsed."
+    if not host:
+        return "DATABASE_URL has no host in it."
+    try:
+        families = {i[0] for i in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
+    except socket.gaierror:
+        return ("The host %s does not resolve. Check it for a typo, and that the "
+                "database has not been paused." % host)
+    if socket.AF_INET not in families:
+        pooled = "the pooler host" if ".pooler." not in host else "an IPv4 host"
+        return ("The host %s has an IPv6 address and no IPv4 one, and this server "
+                "can only reach IPv4. Use %s instead: in Supabase, Connect > "
+                "Session pooler gives a connection string on a "
+                "*.pooler.supabase.com host, which answers on IPv4." % (host, pooled))
+    return ("Reached the name %s on port %d, but the database did not accept the "
+            "connection. That is usually the password, or an IP restriction on "
+            "the database." % (host, port))
 
 
 def connect(path=None, url=None):

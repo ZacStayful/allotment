@@ -470,6 +470,45 @@ class TestAuth(Base):
                                          "a new long password"))
 
 
+class TestDatabaseDiagnosis(unittest.TestCase):
+    """The failure that reads as something else. An IPv6-only host on a server
+    with no IPv6 route reports a plain timeout, which sends you looking at
+    passwords and firewalls."""
+
+    SECRET = "hunter2hunter2"
+
+    def test_it_names_the_ipv6_problem_rather_than_timing_out_silently(self):
+        import socket
+        real = socket.getaddrinfo
+        socket.getaddrinfo = lambda *a, **k: [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 5432, 0, 0))]
+        try:
+            why = db.diagnose(
+                "postgresql://app:%s@db.abc.supabase.co:5432/postgres" % self.SECRET)
+        finally:
+            socket.getaddrinfo = real
+        self.assertIn("IPv6", why)
+        self.assertIn("pooler", why)
+        self.assertNotIn(self.SECRET, why)
+
+    def test_an_ipv4_host_is_not_blamed_on_ipv6(self):
+        import socket
+        real = socket.getaddrinfo
+        socket.getaddrinfo = lambda *a, **k: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.1", 5432))]
+        try:
+            why = db.diagnose(
+                "postgresql://app:%s@aws-1-eu-central-1.pooler.supabase.com:5432/postgres"
+                % self.SECRET)
+        finally:
+            socket.getaddrinfo = real
+        self.assertNotIn("IPv6", why)
+        self.assertNotIn(self.SECRET, why)
+
+    def test_no_url_is_not_a_fault(self):
+        self.assertIsNone(db.diagnose(""))
+
+
 class TestServerRoutes(Base):
     """A browser asks for /favicon.ico on every page load. If that 404s, the
     console fills with errors on a site that is working perfectly."""
