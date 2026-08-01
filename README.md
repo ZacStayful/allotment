@@ -216,6 +216,18 @@ export DATABASE_URL="postgresql://user:pass@host:5432/postgres"
 ./plot today
 ```
 
+### Which branch is deployed
+
+Vercel builds the **production** URL from `main` and gives every other branch
+its own **preview** URL. Code on a branch is not on `main` until it is merged,
+so redeploying production while the work sits on a branch rebuilds an empty
+repository and serves a 404. Check the branch name on the deployment before
+concluding the app is broken.
+
+A deployment also captures the environment variables that existed when it was
+built. Adding a variable does not reach a deployment that already exists — that
+one has to be rebuilt.
+
 ### On Vercel
 
 `api/index.py` is the entry point. **The runtime scans that file for a
