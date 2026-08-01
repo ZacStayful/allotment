@@ -588,6 +588,23 @@ class TestServerRoutes(Base):
         self.assertEqual(headers["Content-Type"], "image/svg+xml")
         self.assertIn(b"<svg", body)
 
+    def test_overlapping_requests_never_strand_the_connection_lock(self):
+        """The shared connection is taken under a lock held for the whole request.
+        A path that returns or raises without releasing it wedges the server for
+        good, and only under load, so it is worth firing a crowd at it."""
+        import threading as t
+        from allotment import server
+        out = []
+        threads = [t.Thread(target=lambda: out.append(self.get("/login")[0]))
+                   for _ in range(12)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=20)
+        self.assertEqual(out, [200] * 12)
+        self.assertTrue(server._CONN_LOCK.acquire(timeout=5), "lock was stranded")
+        server._CONN_LOCK.release()
+
     def test_robots_and_health_need_no_login(self):
         self.assertEqual(self.get("/robots.txt")[0], 200)
         self.assertEqual(self.get("/healthz")[0], 200)

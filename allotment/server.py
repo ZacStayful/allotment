@@ -7,6 +7,7 @@ in a shed is easier than a laptop.
 import html
 import json
 import os
+import threading
 import urllib.parse
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -19,8 +20,19 @@ from .rules import parse
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DB_PATH = None
 _SCHEMA_READY = False
+_CONN = None            # the process's Postgres connection, reused between requests
+_CONN_LOCK = threading.Lock()   # one request at a time may hold it
 
-NAV = [("/", "Today"), ("/week", "Week"), ("/map", "Map"), ("/stock", "Stock"),
+
+def close_quietly(conn):
+    """A connection already broken by the far end still raises on close."""
+    try:
+        conn.close()
+    except Exception:                       # noqa: BLE001 - nothing left to salvage
+        pass
+
+
+NAV =[("/", "Today"), ("/week", "Week"), ("/map", "Map"), ("/stock", "Stock"),
        ("/shop", "Shop"), ("/money", "Money"), ("/time", "Time"), ("/report", "Report")]
 
 
@@ -431,15 +443,50 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing ---------------------------------------------------------
     def _conn(self):
-        """One connection per request. The schema is checked once per process:
-        under Postgres, 23 CREATE TABLE IF NOT EXISTS on every page view is a
-        round trip you pay for and never use."""
-        global _SCHEMA_READY
-        conn = db.connect(DB_PATH)
-        if not _SCHEMA_READY:
-            bootstrap(conn)
-            _SCHEMA_READY = True
+        """The process's connection, kept between requests.
+
+        Opening a Postgres connection is a TCP handshake, a TLS handshake and an
+        authentication exchange - a good half-dozen round trips before a single
+        row is read. Paying that per page view is most of what a page view costs.
+        SQLite is cheap to open and is not shared, so it stays per-request.
+
+        The schema is checked once per process for the same reason: 23 CREATE
+        TABLE IF NOT EXISTS on every page view is work that never does anything.
+        """
+        global _SCHEMA_READY, _CONN
+        _CONN_LOCK.acquire()
+        self._held = True
+        try:
+            if _CONN is not None:
+                try:
+                    _CONN.execute("SELECT 1")      # still there after an idle spell?
+                    return _CONN
+                except Exception:                  # noqa: BLE001 - any driver error
+                    close_quietly(_CONN)
+                    _CONN = None
+            conn = db.connect(DB_PATH)
+            if not _SCHEMA_READY:
+                bootstrap(conn)
+                _SCHEMA_READY = True
+            if db.is_postgres(conn):
+                _CONN = conn
+                return conn
+        except BaseException:
+            self._unhold()                         # never strand the lock
+            raise
+        self._unhold()                             # SQLite: nothing is shared
         return conn
+
+    def _unhold(self):
+        if getattr(self, "_held", False):
+            self._held = False
+            _CONN_LOCK.release()
+
+    def _release(self, conn):
+        """Shut per-request connections; keep the shared one for the next page."""
+        if conn is not _CONN:
+            close_quietly(conn)
+        self._unhold()
 
     def _cookie(self):
         raw = self.headers.get("Cookie", "")
@@ -521,7 +568,7 @@ class Handler(BaseHTTPRequestHandler):
             title = dict(NAV).get(path, "Plot")
             return self._send(page(title, fn(conn, sess, q), sess, path))
         finally:
-            conn.close()
+            self._release(conn)
 
     def _static(self, rel):
         """Files from allotment/static, and nothing outside it."""
@@ -567,7 +614,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(page("Not here", "<p>No such action.</p>", sess), 404)
             return self._redirect(handler(conn, sess, form) or "/")
         finally:
-            conn.close()
+            self._release(conn)
 
 
 def bootstrap(conn):

@@ -247,6 +247,11 @@ POOLER_HOST = re.compile(r"^aws-(\d+)-([a-z0-9-]+)\.pooler\.supabase\.com$", re.
 POOLER_CLUSTERS = 4
 TENANT_MISSING = "not found"
 
+# The URL that actually worked, once one has. A wrong pooler is a real host that
+# completes a TCP and TLS handshake before rejecting the tenant, so retrying it
+# on every request costs a full transatlantic round trip for a known answer.
+_WORKING_URL = None
+
 
 def sibling_poolers(url):
     """The same connection string on the region's other pooler clusters.
@@ -291,8 +296,9 @@ class PgConnection:
         self._conn.commit()
 
     def _open(self, url):
+        global _WORKING_URL
         try:
-            return self._dial(url)
+            return self._dial(_WORKING_URL or url)
         except psycopg2.OperationalError as first:
             if TENANT_MISSING not in str(first).lower():
                 raise
@@ -302,6 +308,7 @@ class PgConnection:
                 except psycopg2.OperationalError:
                     continue
                 host = urllib.parse.urlsplit(other).hostname
+                _WORKING_URL = other       # once per process, not once per page
                 sys.stderr.write(
                     "DATABASE_URL names a pooler this project is not on. Connected "
                     "via %s instead - set DATABASE_URL to that host to stop paying "
