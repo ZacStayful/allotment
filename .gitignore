@@ -1,0 +1,5 @@
+plot.db
+plot.db-wal
+plot.db-shm
+__pycache__/
+*.pyc

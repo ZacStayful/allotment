@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plot Map — layers</title>
+<style>
+:root{
+  --ground:#111917;--ground-2:#1C2722;--bone:#FFFFFF;--dim:#D8E0D9;--rule:#4A5C52;
+  --sun:#FFD166;--water:#6FB3C9;--weed:#C98BE0;--alert:#FF8B7E;--green:#8FC46B;
+  --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --data:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--bone);font-family:var(--ui);font-weight:500;-webkit-font-smoothing:antialiased}
+body.light{--ground:#FFF;--ground-2:#F2F4F1;--bone:#101614;--dim:#3A4A42;--rule:#C3CDC6;--sun:#8A5A00;--water:#1F5F73;--weed:#6B2E86;--alert:#B3241A;--green:#3F6B21}
+.wrap{max-width:760px;margin:0 auto;padding:20px 15px 60px}
+header{border-bottom:1px solid var(--rule);padding-bottom:14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.sub{font-family:var(--data);font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--sun);margin:0 0 7px}
+h1{font-size:clamp(26px,6vw,40px);font-weight:800;letter-spacing:-.02em;margin:0;line-height:1}
+h2{font-size:19px;font-weight:800;margin:22px 0 8px}
+p{font-size:15px;line-height:1.55;margin:0 0 11px;color:var(--dim)}
+button{font-family:var(--ui);font-weight:700;cursor:pointer;transition:.15s}
+.btn{background:none;border:1px solid var(--rule);color:var(--dim);font-size:13.5px;padding:8px 13px}
+.btn:hover{color:var(--bone);border-color:var(--bone)}
+.btn.sel{background:var(--sun);border-color:var(--sun);color:#111917}
+.layers{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+nav a{font-family:var(--data);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;text-decoration:none;color:var(--dim);border:1px solid var(--rule);padding:7px 11px}
+nav a:hover{color:#111917;background:var(--sun);border-color:var(--sun)}
+.figwrap{background:var(--ground-2);border:1px solid var(--rule);padding:6px}
+svg{width:100%;height:auto;display:block}
+label{display:block;font-family:var(--data);font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
+input[type=range]{width:100%;accent-color:var(--sun)}
+.readout{font-family:var(--data);font-size:12.5px;font-weight:700;color:var(--sun);letter-spacing:.05em}
+.info{border:1px solid var(--rule);border-left:3px solid var(--sun);padding:13px 15px;margin-top:13px;min-height:80px}
+.info h4{margin:0 0 5px;font-size:17px;font-weight:800}
+.info .m{font-family:var(--data);font-size:11.5px;font-weight:700;color:var(--sun);letter-spacing:.07em;display:block;margin-bottom:7px}
+.info p{margin:0;font-size:15px}
+.key{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:11px;font-family:var(--data);font-size:11px;font-weight:600;color:var(--dim)}
+.key i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1px solid rgba(128,128,128,.4)}
+.pin{cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+ <div><p class="sub">Albert Village · 11.4 × 11.4 m · 52.75°N</p><h1>Plot map</h1></div>
+ <button class="btn" id="theme">Light</button>
+</header>
+
+<nav id="appnav"></nav>
+<div class="layers" id="layers"></div>
+<div class="figwrap"><svg id="map" viewBox="0 0 460 470"></svg></div>
+<div id="controls"></div>
+<div class="info" id="info"><h4>Tap the map</h4><p>Every layer is interactive. Tap a bed, a heat cell or a pin to see what it means.</p></div>
+<div class="key" id="key"></div>
+<div id="notes"></div>
+
+</div>
+
+<script>
+/* Data injected by the server from the database. Falls back to the built-in
+   layout so this file also opens straight off disk. */
+var PLOT = /*__PLOT_DATA__*/null;
+
+var W=11.4,D=11.4,LAT=(PLOT&&PLOT.lat)||52.75;
+/* the drawing points up the plot from the gate. Gate faces SW, so "up" on screen = NE = 45 deg */
+var BEARING=45;
+
+var FALLBACK=[
+ {id:"path",x:0,y:0,w:1.0,d:11.4,h:0,c:"#6E6A5A",n:"Main path"},
+ {id:"b1",x:1.3,y:0.4,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 1"},
+ {id:"b2",x:3.1,y:0.4,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 2"},
+ {id:"poll",x:4.9,y:0.4,w:1.0,d:2.4,h:0.6,c:"#5C7FBF",n:"Pollinators"},
+ {id:"b3",x:1.3,y:3.2,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 3"},
+ {id:"b4",x:3.1,y:3.2,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 4"},
+ {id:"spud",x:1.3,y:6.0,w:4.6,d:3.0,h:0.2,c:"#8B6F9E",n:"Potato ground"},
+ {id:"green",x:1.3,y:9.2,w:4.6,d:1.1,h:0,c:"#3E5B3A",n:"Green manure"},
+ {id:"hard",x:6.2,y:0.3,w:2.6,d:1.6,h:0,c:"#565349",n:"Hardstanding"},
+ {id:"shed",x:9.1,y:0.3,w:1.85,d:1.25,h:2.1,c:"#48584F",n:"Shed"},
+ {id:"butt",x:9.1,y:1.9,w:1.5,d:0.9,h:1.0,c:"#3D6B78",n:"Water butts"},
+ {id:"green2",x:6.2,y:2.2,w:2.2,d:5.0,h:0,c:"#3E5B3A",n:"Green manure"},
+ {id:"tun",x:8.6,y:3.2,w:2.0,d:4.0,h:2.0,c:"#9DBDB8",n:"Polytunnel"},
+ {id:"bean",x:6.2,y:7.6,w:2.2,d:1.0,h:1.8,c:"#C1443A",n:"Beans"},
+ {id:"comp",x:8.8,y:7.6,w:2.2,d:1.0,h:1.0,c:"#6B4F3A",n:"Compost"},
+ {id:"fruit",x:6.2,y:9.0,w:5.0,d:1.3,h:1.2,c:"#A8324A",n:"Soft fruit"},
+ {id:"clear",x:0,y:10.4,w:11.4,d:1.0,h:0,c:"#2A3730",n:"Keep clear (fence break)"}
+];
+
+var Z = (PLOT && PLOT.zones) ? PLOT.zones.map(function(z){
+  return {id:z.id,x:z.x,y:z.y,w:z.w,d:z.d,h:z.height_m||0,c:z.colour||"#7BA05B",
+          n:z.name,note:z.notes,growable:z.growable};
+}) : FALLBACK;
+
+/* woodland treated as a 7 m barrier along the south-east boundary */
+var WOOD={x:11.4,y:-1,w:1.5,d:13.4,h:7};
+
+var S=34,OX=52,OY=440;
+function PX(m){return OX+m*S;}
+function PY(m){return OY-m*S;}
+var NS="http://www.w3.org/2000/svg";
+function E(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
+function T(s,x,y,t,o){o=o||{};var e=E("text",{x:x,y:y,fill:o.fill||"#FFF","text-anchor":o.a||"middle",
+ "font-family":o.mono?"ui-monospace,Menlo,monospace":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
+ "font-size":o.s||11,"font-weight":o.w||700,"letter-spacing":o.ls||"0.02em"});
+ if(o.rot)e.setAttribute("transform","rotate("+o.rot+" "+x+" "+y+")");
+ if(o.bl)e.setAttribute("dominant-baseline",o.bl);
+ e.textContent=t;s.appendChild(e);return e;}
+
+/* ---------------- solar position ---------------- */
+function solar(dayOfYear,hour){
+ var dec=23.45*Math.sin(2*Math.PI*(284+dayOfYear)/365)*Math.PI/180;
+ var lat=LAT*Math.PI/180;
+ var H=(hour-12)*15*Math.PI/180;
+ var alt=Math.asin(Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(H));
+ var az=Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(lat)-Math.tan(dec)*Math.cos(lat));
+ az=az+Math.PI-BEARING*Math.PI/180;
+ return {alt:alt,az:az,altDeg:alt*180/Math.PI,azDeg:(az*180/Math.PI+360)%360};
+}
+function shadowVec(sun){
+ if(sun.alt<=0.03)return null;
+ var L=Math.min(30,1/Math.tan(sun.alt));
+ return {dx:-Math.sin(sun.az)*L, dy:-Math.cos(sun.az)*L};
+}
+function hull(P){
+ P=P.slice().sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
+ var lo=[],hi=[],i;
+ function cr(o,a,b){return (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);}
+ for(i=0;i<P.length;i++){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],P[i])<=0)lo.pop();lo.push(P[i]);}
+ for(i=P.length-1;i>=0;i--){while(hi.length>=2&&cr(hi[hi.length-2],hi[hi.length-1],P[i])<=0)hi.pop();hi.push(P[i]);}
+ lo.pop();hi.pop();return lo.concat(hi);
+}
+function shadowPoly(z,sv){
+ if(!sv||z.h<=0.25)return null;
+ var pts=[[z.x,z.y],[z.x+z.w,z.y],[z.x+z.w,z.y+z.d],[z.x,z.y+z.d]];
+ var m=pts.map(function(p){return [p[0]+sv.dx*z.h,p[1]+sv.dy*z.h];});
+ return hull(pts.concat(m));
+}
+function inPoly(px,py,poly){
+ var c=false;
+ for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+  var xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
+  if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))c=!c;
+ }
+ return c;
+}
+
+/* ---------------- sun hours map ---------------- */
+var GC=0.6, GN=Math.ceil(W/GC);
+function sunHours(dayOfYear){
+ var g=[],i,j;
+ for(i=0;i<GN;i++){g[i]=[];for(j=0;j<GN;j++)g[i][j]=0;}
+ for(var hr=3;hr<=21;hr+=0.5){
+  var s=solar(dayOfYear,hr);
+  if(s.alt<=0.05)continue;
+  var sv=shadowVec(s);
+  var polys=[];
+  Z.concat([WOOD]).forEach(function(z){
+   var p=shadowPoly(z,sv);
+   /* a structure never shades its own footprint */
+   if(p)polys.push({p:p,f:[z.x,z.y,z.x+z.w,z.y+z.d]});
+  });
+  for(i=0;i<GN;i++)for(j=0;j<GN;j++){
+   var cx=(i+0.5)*GC, cy=(j+0.5)*GC, lit=true;
+   for(var k=0;k<polys.length;k++){
+    var f=polys[k].f;
+    if(cx>=f[0]&&cx<=f[2]&&cy>=f[1]&&cy<=f[3])continue;
+    if(inPoly(cx,cy,polys[k].p)){lit=false;break;}
+   }
+   if(lit)g[i][j]+=0.5;
+  }
+ }
+ return g;
+}
+
+/* ---------------- weed pressure model ---------------- */
+function weedGrid(){
+ if(PLOT&&PLOT.weeds)return PLOT.weeds;
+ var g=[],i,j;
+ for(i=0;i<GN;i++){g[i]=[];for(j=0;j<GN;j++){
+  var x=(i+0.5)*GC, y=(j+0.5)*GC, s=0;
+  s += Math.max(0,1-(W-x)/4.5)*1.0;
+  var edge=Math.min(x,W-x,y,D-y);
+  s += Math.max(0,1-edge/1.2)*0.85;
+  if(x<2.2) s+=0.35;
+  Z.forEach(function(z){
+   if((z.id==="spud"||z.id==="green"||z.id==="green2")&&x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.d)s+=0.45;
+   if(z.id.indexOf("b")===0&&z.id.length===2&&x>=z.x-0.35&&x<=z.x+z.w+0.35&&y>=z.y-0.35&&y<=z.y+z.d+0.35)s+=0.25;
+  });
+  var dc=Math.hypot(x-9.9,y-8.1); s+=Math.max(0,1-dc/2.0)*0.4;
+  g[i][j]=Math.min(1,s/2.2);
+ }}
+ return g;
+}
+
+/* ---------------- trouble spots ---------------- */
+var FALLBACK_PINS=[
+ {x:1.9,y:10.0,t:"Slugs",c:"#C98BE0",w:"High",
+  d:"Damp, shaded and right against the scrub — the classic slug reservoir.",
+  a:"Patrol here after rain, April to June, after dark."}
+];
+var PIN_COLOUR={pest:"#C98BE0",weed:"#C98BE0",ground:"#B87333",weather:"#6FB3C9",
+ bird:"#FF8B7E",water:"#FFD166"};
+var PINS = (PLOT && PLOT.pins) ? PLOT.pins.map(function(p){
+  return {x:p.x,y:p.y,t:p.title,c:PIN_COLOUR[p.kind]||"#C98BE0",w:p.severity,
+          d:p.description,a:p.remedy};
+}) : FALLBACK_PINS;
+
+var TAP={x:-1.6,y:0.6};
+
+/* ---------------- rotation ---------------- */
+function rotationFor(year){
+ if(PLOT&&PLOT.rotation&&PLOT.rotation[year]){
+  var out={},m=PLOT.rotation[year];
+  for(var k in m)out[k]=(PLOT.groups&&PLOT.groups[m[k]])||m[k];
+  return out;
+ }
+ return {b1:"Onion & garlic",b2:"Beetroot & chard",b3:"Kale & turnip",
+         b4:"Courgettes & salad",spud:"Potatoes",green:"Green manure",green2:"Green manure"}
+        ;
+}
+
+/* ---------------- state + render ---------------- */
+var LAYERS=[
+ {id:"layout",n:"Layout"},{id:"sun",n:"Sun & shade"},{id:"weed",n:"Weed pressure"},
+ {id:"trouble",n:"Trouble spots"},{id:"water",n:"Watering"},{id:"rot",n:"Rotation"},
+ {id:"nbr",n:"Neighbour shading"}
+];
+var cur="layout", month=6, hour=13, rotYear=1;
+var WG=weedGrid(), SG=null, sgMonth=-1;
+var MDAY=[15,46,74,105,135,166,196,227,258,288,319,349];
+var MNAME=["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function info(title,meta,text){
+ document.getElementById("info").innerHTML='<h4>'+title+'</h4>'+(meta?'<span class="m">'+meta+'</span>':'')+'<p>'+text+'</p>';
+}
+function paintNav(){
+ var el=document.getElementById("appnav");
+ if(!PLOT||!PLOT.nav){el.style.display="none";return;}
+ el.innerHTML=PLOT.nav.map(function(n){return '<a href="'+n[0]+'">'+n[1]+'</a>';}).join("");
+}
+function paintLayers(){
+ var el=document.getElementById("layers");el.innerHTML="";
+ LAYERS.forEach(function(l){
+  var b=document.createElement("button");b.className="btn"+(cur===l.id?" sel":"");b.textContent=l.n;
+  b.onclick=function(){cur=l.id;draw();paintLayers();};el.appendChild(b);
+ });
+}
+function plantingsIn(id){
+ if(!PLOT||!PLOT.plantings)return "";
+ var p=PLOT.plantings.filter(function(q){return q.zone_id===id;});
+ if(!p.length)return "";
+ return "<br><br><strong style='color:var(--sun)'>In the ground now:</strong> "+
+  p.map(function(q){return (q.crop||"?")+(q.variety?" ("+q.variety+")":"")+
+   (q.expected_first_harvest?", ready "+q.expected_first_harvest:"");}).join("; ");
+}
+function base(s,dim){
+ s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"#1C2722"}));
+ for(var i=0;i<=11;i++){
+  s.appendChild(E("line",{x1:PX(i),y1:PY(0),x2:PX(i),y2:PY(D),stroke:"#2C3A33","stroke-width":1}));
+  s.appendChild(E("line",{x1:PX(0),y1:PY(i),x2:PX(W),y2:PY(i),stroke:"#2C3A33","stroke-width":1}));
+ }
+ Z.forEach(function(z){
+  var r=E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,fill:z.c,
+   "fill-opacity":dim?0.16:0.6,stroke:z.c,"stroke-opacity":dim?0.5:1,"stroke-width":1.2,"class":"pin"});
+  r.addEventListener("click",function(){
+   info(z.n,z.w+" × "+z.d+" m · "+(z.w*z.d).toFixed(1)+" m²",zoneNote(z)+plantingsIn(z.id));});
+  s.appendChild(r);
+  if(!dim){
+   var v=(z.d>z.w*1.9&&z.w*S<64);
+   T(s,PX(z.x+z.w/2),PY(z.y+z.d/2),(z.n||"").toUpperCase(),{s:9.5,bl:"middle",rot:v?-90:0});
+  }
+ });
+ s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"none",stroke:"#FFF","stroke-width":1.5}));
+ T(s,PX(W)+16,PY(D/2),"WOODLAND — SE",{mono:1,s:9.5,ls:"0.14em",fill:"#96A099",rot:90});
+ T(s,PX(0)-20,PY(D/2),"NEIGHBOUR — NW",{mono:1,s:9.5,ls:"0.14em",fill:"#FF8B7E",rot:-90});
+ T(s,PX(W/2),PY(0)+26,"GATE — FACES SOUTH-WEST",{mono:1,s:9.5,ls:"0.14em",fill:"#FFD166"});
+ var g=E("g",{transform:"translate("+(PX(W)+22)+","+(PY(D)+14)+")"});
+ g.appendChild(E("path",{d:"M0,20 L0,-12 M0,-12 L-4,-4 M0,-12 L4,-4",stroke:"#FFD166","stroke-width":1.5,fill:"none",transform:"rotate(-45)"}));
+ s.appendChild(g);T(s,PX(W)+22,PY(D)+48,"N",{s:12,fill:"#FFD166"});
+}
+function zoneNote(z){
+ if(z.note)return z.note;
+ var m={path:"Woodchip over membrane. Never needs mowing.",shed:"6 × 4 ft maximum under Association rules.",
+ butt:"Three 210 L. The only water source November to March.",hard:"Every barrow load lands here.",
+ green:"Phacelia. Counts as cultivated at inspection.",tun:"4 × 2 m maximum. Never receives rain.",
+ spud:"Open ground, no bed.",clear:"One metre fence break required by the tenancy.",
+ comp:"Two pallet bays. Turn monthly.",fruit:"Rhubarb and currants.",bean:"Wigwams. Pick every 2–3 days.",
+ poll:"Borage, phacelia, calendula. Pollination, not decoration."};
+ return m[z.id]||"Growing bed, 2.4 × 1.2 m. Never walked on.";
+}
+
+function draw(){
+ var s=document.getElementById("map");s.innerHTML="";
+ var c=document.getElementById("controls");c.innerHTML="";
+ var k=document.getElementById("key");k.innerHTML="";
+ var nt=document.getElementById("notes");nt.innerHTML="";
+
+ if(cur==="layout"){base(s,false);
+  info("Layout","11.4 × 11.4 m · 129.8 m²","Tap any area for what it is, why it is there, and what is growing in it now.");
+  return;}
+ if(cur==="sun")return drawSun(s,c,k,nt);
+ if(cur==="weed")return drawWeed(s,c,k,nt);
+ if(cur==="trouble")return drawTrouble(s,c,k,nt);
+ if(cur==="water")return drawWater(s,c,k,nt);
+ if(cur==="rot")return drawRot(s,c,k,nt);
+ if(cur==="nbr")return drawNbr(s,c,k,nt);
+}
+
+function heat(s,g,ramp,onTap){
+ for(var i=0;i<GN;i++)for(var j=0;j<GN;j++){
+  var v=g[i][j];if(v<=0.001)continue;
+  var col=ramp(v);
+  var r=E("rect",{x:PX(i*GC),y:PY((j+1)*GC),width:GC*S+0.6,height:GC*S+0.6,fill:col.f,"fill-opacity":col.o,"class":"pin"});
+  (function(vv,ii,jj){r.addEventListener("click",function(){onTap(vv,ii,jj);});})(v,i,j);
+  s.appendChild(r);
+ }
+}
+
+function drawSun(s,c,k,nt){
+ if(sgMonth!==month){SG=sunHours(MDAY[month]);sgMonth=month;}
+ base(s,true);
+ var mx=Math.max.apply(null,SG.map(function(r){return Math.max.apply(null,r);}))||1;
+ heat(s,SG,function(v){var t=v/mx;return {f:t>0.75?"#FFD166":t>0.5?"#D9A94A":t>0.25?"#7E7040":"#2E3A34",o:0.78};},
+  function(v){info("Direct sun here",v.toFixed(1)+" hours on "+MNAME[month]+" 15th",
+   v>=6?"Full sun. Anything will grow here.":v>=4?"Good light. Fine for most crops, though fruiting plants prefer more.":
+   v>=2?"Part shade. Leafy crops and soft fruit cope; tomatoes and courgettes won't be happy.":"Deep shade. Compost, storage or perennials only.");});
+
+ var sun=solar(MDAY[month],hour),sv=shadowVec(sun);
+ if(sv){
+  Z.concat([WOOD]).forEach(function(z){
+   var p=shadowPoly(z,sv);if(!p)return;
+   s.appendChild(E("polygon",{points:p.map(function(q){return PX(q[0])+","+PY(q[1]);}).join(" "),
+    fill:"#0A0F0D","fill-opacity":0.55,stroke:"none"}));
+  });
+ }
+ base2(s);
+
+ c.innerHTML='<label>Month — <span class="readout">'+MNAME[month]+'</span></label>'+
+  '<input type="range" id="ms" min="0" max="11" value="'+month+'">'+
+  '<label>Time of day — <span class="readout">'+fmtH(hour)+'</span></label>'+
+  '<input type="range" id="hs" min="4" max="21" step="0.5" value="'+hour+'">';
+ document.getElementById("ms").oninput=function(){month=+this.value;draw();};
+ document.getElementById("hs").oninput=function(){hour=+this.value;draw();};
+
+ k.innerHTML='<span><i style="background:#FFD166"></i>6 hrs +</span><span><i style="background:#D9A94A"></i>4–6 hrs</span>'+
+  '<span><i style="background:#7E7040"></i>2–4 hrs</span><span><i style="background:#2E3A34"></i>under 2 hrs</span>'+
+  '<span><i style="background:#0A0F0D"></i>shadow right now</span>';
+
+ var alt=sun.altDeg;
+ nt.innerHTML='<p style="margin-top:12px"><span class="readout">Sun altitude '+alt.toFixed(0)+'°, bearing '+sun.azDeg.toFixed(0)+'°.</span> '+
+  (alt<=0?'The sun is below the horizon at this time in '+MNAME[month]+'.':
+   'Shadow length is about '+(1/Math.tan(sun.alt)).toFixed(1)+'× the height of anything casting it. '+
+   'Your polytunnel is 2 m tall, so it throws roughly '+(2/Math.tan(sun.alt)).toFixed(1)+' m right now.')+'</p>'+
+  '<p>Colour shows total direct sun across the whole day. The dark overlay is the shadow at the moment you have selected.</p>';
+ info("Sun and shade","Modelled for "+LAT.toFixed(2)+"°N","Tap any coloured square for how many hours of direct sun it gets on this date.");
+}
+function base2(s){
+ Z.forEach(function(z){s.appendChild(E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,
+  fill:"none",stroke:"#FFF","stroke-opacity":0.28,"stroke-width":1}));});
+ s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"none",stroke:"#FFF","stroke-width":1.5}));
+}
+function fmtH(h){var hh=Math.floor(h),mm=(h-hh)*60;return (hh<10?"0":"")+hh+":"+(mm?"30":"00");}
+
+function drawWeed(s,c,k,nt){
+ base(s,true);
+ heat(s,WG,function(v){return {f:v>0.7?"#C98BE0":v>0.45?"#8E5FA8":"#4A3A57",o:0.8};},
+  function(v,i,j){
+   var x=(i+0.5)*GC,y=(j+0.5)*GC,r=[];
+   if(W-x<4.5)r.push("seed blowing in from the woodland on the SE side");
+   if(Math.min(x,W-x,y,D-y)<1.2)r.push("grass creeping in from the plot edge");
+   if(x<2.2)r.push("path and hardstanding edge");
+   if(Math.hypot(x-9.9,y-8.1)<2.0)r.push("close to the compost bays");
+   Z.forEach(function(z){if((z.id==="spud"||z.id==="green"||z.id==="green2")&&x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.d)r.push("bare or thinly covered ground");});
+   info(v>0.7?"High weed pressure":v>0.45?"Moderate weed pressure":"Low weed pressure",
+    "Score "+(v*100).toFixed(0)+"/100 · "+x.toFixed(1)+" m across, "+y.toFixed(1)+" m up",
+    (r.length?"Driven by: "+r.join(", ")+". ":"Well covered and away from the edges. ")+
+    (v>0.7?"Expect to weed this every visit through spring. Mulch heavily or keep it under membrane.":
+     v>0.45?"Worth a look on every visit, but it should not get away from you.":
+     "The 20-minute arrival weed should keep on top of this."));
+  });
+ base2(s);
+ k.innerHTML='<span><i style="background:#C98BE0"></i>High</span><span><i style="background:#8E5FA8"></i>Moderate</span><span><i style="background:#4A3A57"></i>Low</span>';
+ nt.innerHTML='<h2>How this is worked out</h2>'+
+  '<p><strong style="color:var(--sun)">Seed rain from the woodland.</strong> Birch and willow seed blows in all season. It falls off sharply beyond about four metres.</p>'+
+  '<p><strong style="color:var(--sun)">Grass creeping in from the edges.</strong> The commonest weed on any allotment is the grass already growing round it.</p>'+
+  '<p><strong style="color:var(--sun)">Bare ground.</strong> Weed seed only germinates in light. The potato block and green manure strip are exposed until the crop knits over.</p>'+
+  '<p><strong style="color:var(--sun)">The compost bays.</strong> Anything that goes in already seeding comes back out spread across the beds.</p>'+
+  '<p style="margin-top:14px">Log where you actually weed (<code>plot weeds --observe</code>) and the prediction is progressively replaced by observation.</p>';
+ info("Weed pressure","Predicted, corrected by observation","Tap a square to see what drives the pressure there.");
+}
+
+function drawTrouble(s,c,k,nt){
+ base(s,true);base2(s);
+ PINS.forEach(function(p){
+  var g=E("g",{"class":"pin"});
+  g.appendChild(E("circle",{cx:PX(p.x),cy:PY(p.y),r:13,fill:p.c,"fill-opacity":0.22}));
+  g.appendChild(E("circle",{cx:PX(p.x),cy:PY(p.y),r:7,fill:p.c,stroke:"#111917","stroke-width":1.5}));
+  g.addEventListener("click",function(){
+   info(p.t,"Risk: "+p.w,p.d+"<br><br><strong style='color:var(--sun)'>What to do:</strong> "+p.a);
+  });
+  s.appendChild(g);
+ });
+ k.innerHTML='<span><i style="background:#C98BE0"></i>Pests & weeds</span><span><i style="background:#B87333"></i>Ground & mud</span>'+
+  '<span><i style="background:#6FB3C9"></i>Weather</span><span><i style="background:#FF8B7E"></i>Birds</span><span><i style="background:#FFD166"></i>Water</span>';
+ nt.innerHTML='<p style="margin-top:12px">Derived from the plot\'s shape, aspect and surroundings. As you log real problems, add pins here so the map becomes observed rather than predicted.</p>';
+ info("Trouble spots",PINS.length+" marked","Tap any pin. Each explains why that spot is a problem and what to do about it.");
+}
+
+function drawWater(s,c,k,nt){
+ base(s,true);
+ [10,20,30].forEach(function(r,i){
+  s.appendChild(E("circle",{cx:PX(TAP.x),cy:PY(TAP.y),r:r*S,fill:"none",stroke:"#6FB3C9",
+   "stroke-opacity":0.5-i*0.12,"stroke-width":1.4,"stroke-dasharray":"5 4"}));
+ });
+ s.appendChild(E("rect",{x:PX(W-2.0),y:PY(D),width:2.0*S,height:D*S,fill:"#FFD166","fill-opacity":0.16}));
+ var t=Z.filter(function(z){return z.id==="tun";})[0];
+ if(t){s.appendChild(E("rect",{x:PX(t.x),y:PY(t.y+t.d),width:t.w*S,height:t.d*S,fill:"#FFD166","fill-opacity":0.4}));}
+ base2(s);
+ s.appendChild(E("circle",{cx:PX(TAP.x),cy:PY(TAP.y),r:8,fill:"none",stroke:"#6FB3C9","stroke-width":2.5}));
+ T(s,PX(TAP.x),PY(TAP.y)-16,"TAP",{mono:1,s:10,fill:"#6FB3C9"});
+ if(t)T(s,PX(t.x+t.w/2),PY(t.y+t.d/2),"ALWAYS",{mono:1,s:9.5,ls:"0.1em",fill:"#111917"});
+ T(s,PX(W-1.0),PY(D/2),"DRY — ROOTS",{mono:1,s:9.5,ls:"0.1em",fill:"#111917"});
+ k.innerHTML='<span><i style="background:#6FB3C9"></i>Hose reach 10/20/30 m</span><span><i style="background:#FFD166"></i>Needs water regardless of rain</span>';
+ nt.innerHTML='<h2>Watering notes</h2>'+
+  '<p><strong style="color:var(--sun)">Buy 30 m of hose, not 20.</strong> The tap is 20 m from the plot boundary.</p>'+
+  '<p><strong style="color:var(--sun)">The tunnel never gets rain.</strong> Water it March to October whatever the sky is doing.</p>'+
+  '<p><strong style="color:var(--sun)">The strip along the treeline is permanently dry.</strong> Soft fruit copes; annuals do not.</p>'+
+  '<p><strong style="color:var(--sun)">The tap is off November to March</strong>, and the Committee can impose a hosepipe ban at any time. Fill every butt in October.</p>';
+ info("Watering","Tap 20 m from the plot","The rings show hose reach. Gold areas need water regardless of rainfall.");
+}
+
+function drawRot(s,c,k,nt){
+ base(s,true);
+ var r=rotationFor(rotYear);
+ Z.forEach(function(z){
+  if(!r[z.id])return;
+  var col=r[z.id].indexOf("Potato")>-1?"#8B6F9E":r[z.id].indexOf("Green")>-1?"#3E5B3A":
+   r[z.id].indexOf("Onion")>-1?"#C9A227":r[z.id].indexOf("Kale")>-1?"#4E8C6A":
+   r[z.id].indexOf("Beetroot")>-1?"#B0453F":"#7BA05B";
+  s.appendChild(E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,fill:col,"fill-opacity":0.8,stroke:col}));
+  var lines=r[z.id].split(" & ");
+  lines.forEach(function(ln,li){
+   T(s,PX(z.x+z.w/2),PY(z.y+z.d/2)+(li-(lines.length-1)/2)*12,ln.toUpperCase(),{s:9,bl:"middle"});});
+ });
+ base2(s);
+ c.innerHTML='<label>Year</label><div class="layers" id="ry"></div>';
+ var ry=document.getElementById("ry");
+ [1,2,3,4].forEach(function(y){
+  var b=document.createElement("button");b.className="btn"+(rotYear===y?" sel":"");b.textContent="Year "+y;
+  b.onclick=function(){rotYear=y;draw();};ry.appendChild(b);
+ });
+ k.innerHTML='<span><i style="background:#C9A227"></i>Alliums</span><span><i style="background:#B0453F"></i>Roots & leaves</span>'+
+  '<span><i style="background:#4E8C6A"></i>Brassicas</span><span><i style="background:#7BA05B"></i>Cucurbits & salad</span>'+
+  '<span><i style="background:#8B6F9E"></i>Potatoes</span><span><i style="background:#3E5B3A"></i>Green manure</span>';
+ nt.innerHTML='<p style="margin-top:12px">Four groups move round one bed a year, so no family returns to the same soil within four years. Potatoes and the green manure strip swap places.</p>';
+ info("Crop rotation","Year "+rotYear+" of 4","Tap through the years. Never plant the same family back within three years.");
+}
+
+function drawNbr(s,c,k,nt){
+ base(s,true);
+ s.appendChild(E("rect",{x:PX(0),y:PY(D),width:6.0*S,height:D*S,fill:"#FF8B7E","fill-opacity":0.13}));
+ s.appendChild(E("line",{x1:PX(6.0),y1:PY(0),x2:PX(6.0),y2:PY(D),stroke:"#FF8B7E","stroke-width":2,"stroke-dasharray":"6 4"}));
+ var sun=solar(80,8),sv=shadowVec(sun);
+ Z.forEach(function(z){
+  var p=shadowPoly(z,sv);if(!p)return;
+  s.appendChild(E("polygon",{points:p.map(function(q){return PX(q[0])+","+PY(q[1]);}).join(" "),
+   fill:"#FF8B7E","fill-opacity":0.42,stroke:"#FF8B7E","stroke-opacity":0.7}));
+ });
+ base2(s);
+ T(s,PX(3.0),PY(D/2),"NO TALL STRUCTURES",{s:11,fill:"#FF8B7E"});
+ T(s,PX(3.0),PY(D/2)-15,"within 6 m of the boundary",{s:9.5,fill:"#FF8B7E",mono:1});
+ k.innerHTML='<span><i style="background:#FF8B7E;opacity:.4"></i>Exclusion band — 6 m</span><span><i style="background:#FF8B7E"></i>Shadow at 08:00, 21 March</span>';
+ nt.innerHTML='<h2>Why the tall things moved</h2>'+
+  '<p>The Association must approve polytunnel placement specifically to stop plots shading each other, so this is a condition of permission, not just good manners.</p>'+
+  '<p>A 2 m tunnel throws a shadow <strong style="color:var(--sun)">up to 6 m toward the north-west at 8am in March and September</strong> — exactly when your neighbour is starting seedlings.</p>'+
+  '<p><strong style="color:var(--sun)">The fix costs nothing.</strong> Every tall structure sits in the south-east half against the woodland, where the shadows land on ground the trees already shade.</p>'+
+  '<p style="color:var(--sun)"><strong>Worth putting this drawing in the permission application.</strong></p>';
+ info("Neighbour shading","Boundary on the north-west","Red band is the 6 m no-tall-structures zone. Red shapes are worst-case shadows at 8am on 21 March.");
+}
+
+document.getElementById("theme").onclick=function(){
+ document.body.classList.toggle("light");
+ this.textContent=document.body.classList.contains("light")?"Dark":"Light";};
+
+paintNav();paintLayers();draw();
+</script>
+</body>
+</html>
