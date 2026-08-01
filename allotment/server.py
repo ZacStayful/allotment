@@ -587,6 +587,17 @@ def bootstrap(conn):
             auth.create_user(conn, config.DEFAULT_EMAIL, pw)
 
 
+def _env_report():
+    """Which settings the function can actually see. Names and presence only -
+    never the values."""
+    rows = []
+    for name in ("DATABASE_URL", "POSTGRES_URL", "ALLOTMENT_PASSWORD"):
+        seen = bool(os.environ.get(name))
+        rows.append("<tr><td><code>%s</code></td><td class=num>%s</td></tr>"
+                    % (name, "set" if seen else "not visible to this deployment"))
+    return ("<h2>What this deployment can see</h2><table>" + "".join(rows) + "</table>")
+
+
 def setup_page(detail=None):
     """Better than a 500 with no explanation: say exactly what is missing."""
     return page("Not configured yet", (
@@ -596,6 +607,12 @@ def setup_page(detail=None):
         "<h2>To finish setting it up</h2>"
         "<p>Set <code>DATABASE_URL</code> in the project's environment variables to "
         "your Postgres connection string, then redeploy.</p>"
+        "<p><strong>Two things catch people out.</strong> A variable has to be "
+        "ticked for the environment this deployment runs in - a branch or preview "
+        "URL does not read Production-only variables. And variables are baked in at "
+        "build time, so an existing deployment will not pick one up until it is "
+        "redeployed.</p>"
+        + _env_report() +
         "<p>Running it on your own machine instead? <code>./plot init</code> then "
         "<code>./plot serve</code> uses a local SQLite file and needs none of this.</p>"
         + ("<p class=stat>%s</p>" % e(detail) if detail else "")))
