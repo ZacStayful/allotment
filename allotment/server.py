@@ -18,6 +18,7 @@ from .rules import parse
 
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 DB_PATH = None
+_SCHEMA_READY = False
 
 NAV = [("/", "Today"), ("/week", "Week"), ("/map", "Map"), ("/stock", "Stock"),
        ("/shop", "Shop"), ("/money", "Money"), ("/time", "Time"), ("/report", "Report")]
@@ -430,8 +431,14 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- plumbing ---------------------------------------------------------
     def _conn(self):
+        """One connection per request. The schema is checked once per process:
+        under Postgres, 23 CREATE TABLE IF NOT EXISTS on every page view is a
+        round trip you pay for and never use."""
+        global _SCHEMA_READY
         conn = db.connect(DB_PATH)
-        db.init(conn)
+        if not _SCHEMA_READY:
+            bootstrap(conn)
+            _SCHEMA_READY = True
         return conn
 
     def _cookie(self):
@@ -468,6 +475,12 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(n).decode("utf-8") if n else ""
         return {k: v[0] for k, v in urllib.parse.parse_qs(body).items()}
 
+    def _handle_db_error(self, exc):
+        if not db.DATABASE_URL and DB_PATH is None:
+            return self._send(setup_page(), 503)
+        return self._send(setup_page("The database is configured but did not "
+                                     "answer: %s" % type(exc).__name__), 503)
+
     # -- GET --------------------------------------------------------------
     def do_GET(self):
         parts = urllib.parse.urlsplit(self.path)
@@ -483,7 +496,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             return self._send("ok", ctype="text/plain; charset=utf-8")
 
-        conn = self._conn()
+        try:
+            conn = self._conn()
+        except Exception as exc:                 # noqa: BLE001 - any driver error
+            return self._handle_db_error(exc)
         try:
             sess = auth.session(conn, self._cookie())
             if path == "/login":
@@ -521,7 +537,10 @@ class Handler(BaseHTTPRequestHandler):
     # -- POST -------------------------------------------------------------
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
-        conn = self._conn()
+        try:
+            conn = self._conn()
+        except Exception as exc:                 # noqa: BLE001 - any driver error
+            return self._handle_db_error(exc)
         try:
             form = self._form()
             if path == "/login":
@@ -548,6 +567,38 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect(handler(conn, sess, form) or "/")
         finally:
             conn.close()
+
+
+def bootstrap(conn):
+    """Bring an empty database up to a working plot, once.
+
+    A hosted deployment has no shell to run `plot init` in, so the first request
+    against an empty database creates the schema and the seed. Seeding is
+    idempotent, so two cold starts racing each other is harmless.
+    """
+    db.init(conn)
+    if not conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]:
+        seed.seed(conn)
+        if db.get_setting(conn, "season_start", None) in (None, "2026-08-01"):
+            db.set_setting(conn, "season_start", date.today().isoformat())
+    if not conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]:
+        pw = os.environ.get("ALLOTMENT_PASSWORD")
+        if pw:
+            auth.create_user(conn, config.DEFAULT_EMAIL, pw)
+
+
+def setup_page(detail=None):
+    """Better than a 500 with no explanation: say exactly what is missing."""
+    return page("Not configured yet", (
+        "<p>This copy has no database behind it. A hosted deployment needs "
+        "Postgres, because a serverless filesystem is wiped between requests and "
+        "a SQLite file on it would lose everything you logged.</p>"
+        "<h2>To finish setting it up</h2>"
+        "<p>Set <code>DATABASE_URL</code> in the project's environment variables to "
+        "your Postgres connection string, then redeploy.</p>"
+        "<p>Running it on your own machine instead? <code>./plot init</code> then "
+        "<code>./plot serve</code> uses a local SQLite file and needs none of this.</p>"
+        + ("<p class=stat>%s</p>" % e(detail) if detail else "")))
 
 
 def not_found(path):
@@ -613,13 +664,16 @@ POSTS = {"/done": post_done, "/log": post_log, "/leave": post_leave,
 
 def serve(host="127.0.0.1", port=8765, db_path=None):
     global DB_PATH
-    DB_PATH = db_path or config.DB_PATH
+    DB_PATH = db_path
     conn = db.connect(DB_PATH)
     db.init(conn)
     seed.seed(conn)
     if not conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]:
-        auth.create_user(conn, config.DEFAULT_EMAIL, config.DEFAULT_PASSWORD)
-        print("Created login for %s" % config.DEFAULT_EMAIL)
+        import secrets
+        pw = os.environ.get("ALLOTMENT_PASSWORD") or secrets.token_urlsafe(12)
+        auth.create_user(conn, config.DEFAULT_EMAIL, pw)
+        print("Created login for %s with password: %s" % (config.DEFAULT_EMAIL, pw))
+        print("Change it with `plot passwd`.")
     auth.purge(conn)
     conn.close()
     httpd = ThreadingHTTPServer((host, port), Handler)

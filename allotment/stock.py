@@ -26,7 +26,7 @@ def needs(job):
 
 
 def find(conn, item):
-    return conn.execute("SELECT * FROM stock WHERE item=? COLLATE NOCASE", (item,)).fetchone()
+    return conn.execute("SELECT * FROM stock WHERE lower(item)=lower(?)", (item,)).fetchone()
 
 
 def shortfalls(conn, job):

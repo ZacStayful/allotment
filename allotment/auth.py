@@ -74,7 +74,8 @@ def locked_out(conn, email):
 def _record_failure(conn, email):
     conn.execute(
         "INSERT INTO login_attempts(email,failures,last_failure) VALUES(?,1,?) "
-        "ON CONFLICT(email) DO UPDATE SET failures=failures+1, last_failure=excluded.last_failure",
+        "ON CONFLICT(email) DO UPDATE SET failures=login_attempts.failures+1, "
+        "last_failure=excluded.last_failure",
         (normalise(email), datetime.now().isoformat(timespec="seconds")))
     conn.commit()
 

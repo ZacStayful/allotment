@@ -70,10 +70,12 @@ SOIL_CATEGORIES = {"soil", "build"}
 DB_PATH = os.environ.get(
     "ALLOTMENT_DB", os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plot.db"))
 
-# Seed login. Used once, at `plot init`. Override with env vars, and change the
-# password afterwards with `plot passwd`.
+# The seed login address. No password lives in this file: `plot init` takes one
+# from --password, from ALLOTMENT_PASSWORD, or by prompting, and generates a
+# random one if it is running unattended. A password committed to a repository
+# is a published password.
 DEFAULT_EMAIL = os.environ.get("ALLOTMENT_EMAIL", "zac@stayful.co.uk")
-DEFAULT_PASSWORD = os.environ.get("ALLOTMENT_PASSWORD", "AIAllotment56")
+MIN_PASSWORD = 10
 
 SESSION_HOURS = 24 * 14
 MAX_FAILED_LOGINS = 8

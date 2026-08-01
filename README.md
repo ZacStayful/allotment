@@ -3,8 +3,9 @@
 Plot 129.8 m², Albert Village Allotment Association. A jobs engine that tells you
 what needs doing today, and the ledger that tells you what it really cost.
 
-Python 3.9+, standard library only. No pip install, no framework, no build step.
-Everything lives in one SQLite file.
+Python 3.9+. Locally it is standard library only — no pip install, no framework,
+no build step, everything in one SQLite file. The hosted copy runs the same code
+against Postgres, because a serverless filesystem cannot keep a database file.
 
 ```bash
 ./plot init          # create plot.db, seed the plot, create the login
@@ -46,8 +47,10 @@ The seeded address is `zac@stayful.co.uk`. If a database was created with a
 different one, `plot init` points the single existing account at the configured
 address rather than making a second account; the password is unchanged.
 
-The seed credentials are in `allotment/config.py` and can be overridden with the
-`ALLOTMENT_EMAIL` and `ALLOTMENT_PASSWORD` environment variables. Passwords are
+**No password lives in this repository.** `plot init` takes one from
+`--password`, from `ALLOTMENT_PASSWORD`, or by prompting, and generates a random
+one and prints it if it is running unattended. A password committed to a
+repository is a published password. Passwords are
 stored as PBKDF2-HMAC-SHA256 with 240,000 iterations and a per-user salt, never
 in plain text. Sessions are server-side, HttpOnly, and every form carries a CSRF
 token; eight bad attempts locks the account for fifteen minutes.
@@ -177,7 +180,7 @@ of what it actually took. The original planned figure is kept in
 ```
 allotment/
   config.py      site constants, thresholds, budgets, plan hours
-  db.py          schema
+  db.py          schema, and the SQLite/Postgres backends
   seeddata.py    zones, crops, 90 jobs, rotation, trouble spots, opening stock
   seed.py        loads it, idempotently
   rules.py       the seven rule types, materialisation, blocking
@@ -193,8 +196,46 @@ allotment/
   auth.py        PBKDF2, sessions, CSRF, lockout
   server.py      the web view
   cli.py         `plot`
-tests/           67 tests
+api/index.py     the Vercel entry point
+tests/           67 tests, run against SQLite and Postgres
 ```
+
+## Deployment
+
+Locally, SQLite. Hosted, Postgres — set `DATABASE_URL` and the same code uses it.
+Nothing else changes: one schema, one set of SQL, translated where the two
+dialects disagree (placeholders, `INSERT OR IGNORE`, two-argument `MAX`, and
+`RETURNING` for a new row's id). Both backends run the full test suite.
+
+```bash
+# locally: SQLite, no dependencies
+./plot init && ./plot serve
+
+# against Postgres, from your own machine
+export DATABASE_URL="postgresql://user:pass@host:5432/postgres"
+./plot today
+```
+
+### On Vercel
+
+`api/index.py` is the entry point — Vercel's Python runtime wants a
+`BaseHTTPRequestHandler` subclass called `handler`, which is what the server
+already is, and `vercel.json` rewrites every route to it. Two environment
+variables:
+
+| | |
+|---|---|
+| `DATABASE_URL` | Postgres connection string. Required. |
+| `ALLOTMENT_PASSWORD` | Used once, on first boot, to create the login. Delete it afterwards. |
+
+The first request against an empty database creates the schema and seeds the
+plot, so there is no migration step to run. Seeding is idempotent, so two cold
+starts racing each other is harmless. Without `DATABASE_URL` the site serves a
+page telling you what is missing, rather than a 500 or Vercel's own 404.
+
+**Why not SQLite on Vercel:** the filesystem is read-only apart from `/tmp`, and
+`/tmp` is wiped between cold starts. Marking a job done would appear to work and
+then vanish, which is worse than not deploying it at all.
 
 ## Routes
 
@@ -212,8 +253,12 @@ console fills with errors on a site that is working perfectly.
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v                    # SQLite
+ALLOTMENT_TEST_PG=postgresql://... python3 -m unittest discover -s tests   # Postgres
 ```
+
+The same 67 tests run against both backends. Each Postgres run builds and drops
+its own schema, so it will not touch anything else in the database.
 
 ## Build order
 

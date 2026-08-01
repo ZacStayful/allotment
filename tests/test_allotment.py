@@ -17,15 +17,36 @@ from allotment import (auth, config, db, ledger, money, priority, rotation,
 from allotment.weather import Weather
 
 
+# Set ALLOTMENT_TEST_PG to a Postgres URL to run the whole suite against
+# Postgres instead of SQLite. Both backends must pass the same tests.
+TEST_PG = os.environ.get("ALLOTMENT_TEST_PG")
+
+
 class Base(unittest.TestCase):
     def setUp(self):
-        fd, self.path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        self.conn = db.connect(self.path)
+        self.path = None
+        self._saved = (db.DATABASE_URL, db.PG_SCHEMA)
+        if TEST_PG:
+            import uuid
+            db.DATABASE_URL = TEST_PG
+            db.PG_SCHEMA = "test_" + uuid.uuid4().hex[:12]
+            self.conn = db.connect()
+        else:
+            fd, self.path = tempfile.mkstemp(suffix=".db")
+            os.close(fd)
+            self.conn = db.connect(self.path)
         db.init(self.conn)
         seed.seed(self.conn)
 
     def tearDown(self):
+        if TEST_PG:
+            try:
+                self.conn.execute("DROP SCHEMA IF EXISTS %s CASCADE" % db.PG_SCHEMA)
+                self.conn.commit()
+            finally:
+                self.conn.close()
+                db.DATABASE_URL, db.PG_SCHEMA = self._saved
+            return
         self.conn.close()
         for suffix in ("", "-wal", "-shm"):
             try:
@@ -459,7 +480,7 @@ class TestServerRoutes(Base):
         from http.server import ThreadingHTTPServer
         from allotment import server
         auth.create_user(self.conn, "zac@example.com", "correct horse battery")
-        server.DB_PATH = self.path
+        server.DB_PATH = self.path          # None under Postgres, so DATABASE_URL wins
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         self.port = self.httpd.server_address[1]
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)

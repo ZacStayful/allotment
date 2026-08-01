@@ -1,0 +1,3 @@
+# Only needed for the hosted (Postgres) deployment. Running locally on SQLite
+# needs nothing at all - the app is standard library otherwise.
+psycopg2-binary==2.9.12

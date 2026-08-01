@@ -24,9 +24,13 @@ def hm(minutes):
 
 
 def open_db(args):
-    conn = db.connect(getattr(args, "db", None) or config.DB_PATH)
+    conn = db.connect(getattr(args, "db", None))
     db.init(conn)
     return conn
+
+
+def where(args):
+    return getattr(args, "db", None) or db.DATABASE_URL and "Postgres" or config.DB_PATH
 
 
 def refresh(conn, today, offline=False):
@@ -45,6 +49,22 @@ def refresh(conn, today, offline=False):
     return wx, err
 
 
+def read_password(given=None, confirm=True):
+    """--password, then ALLOTMENT_PASSWORD, then a prompt, then a random one."""
+    import getpass
+    import secrets
+    pw = given or os.environ.get("ALLOTMENT_PASSWORD")
+    if not pw and sys.stdin.isatty():
+        pw = getpass.getpass("Password for the web login: ")
+        if confirm and pw != getpass.getpass("Again: "):
+            sys.exit("Passwords did not match.")
+    if not pw:
+        return secrets.token_urlsafe(12), True
+    if len(pw) < config.MIN_PASSWORD:
+        sys.exit("Password must be at least %d characters." % config.MIN_PASSWORD)
+    return pw, False
+
+
 # ------------------------------------------------------------------ commands
 
 def cmd_init(args):
@@ -60,16 +80,19 @@ def cmd_init(args):
             print("Login email changed from %s to %s (password unchanged)"
                   % (users[0]["email"], email))
         else:
-            auth.create_user(conn, email, args.password or config.DEFAULT_PASSWORD,
-                             name=args.name, role="Both")
+            pw, generated = read_password(args.password)
+            auth.create_user(conn, email, pw, name=args.name, role="Both")
             print("Created login for %s" % email)
+            if generated:
+                print("Generated password: %s" % pw)
+                print("Write it down - it is not stored anywhere in plain text.")
     print("Seeded: %(zones)d zones, %(crops)d crops, %(jobs)d jobs, %(stock)d stock lines"
           % counts)
     today = date.today()
     wx, err = refresh(conn, today, args.offline)
     if err:
         print("Weather unavailable (%s) - the rest still works" % err)
-    print("Database: %s" % (args.db or config.DB_PATH))
+    print("Database: %s" % where(args))
     print("Now run:  plot today")
 
 
@@ -432,10 +455,9 @@ def cmd_ban(args):
 
 def cmd_passwd(args):
     conn = open_db(args)
-    import getpass
-    pw = args.password or getpass.getpass("New password: ")
-    if len(pw) < 8:
-        sys.exit("Password must be at least 8 characters.")
+    pw, generated = read_password(args.password)
+    if generated:
+        print("Generated password: %s" % pw)
     n = auth.set_password(conn, args.email or config.DEFAULT_EMAIL, pw)
     print("Password updated" if n else "No such user")
 
@@ -449,10 +471,11 @@ def cmd_user(args):
         print("Renamed %s to %s" % (args.rename, args.to) if n else "No such user")
         return
     if args.add:
-        import getpass
-        pw = args.password or getpass.getpass("Password: ")
+        pw, generated = read_password(args.password)
         auth.create_user(conn, args.add, pw, name=args.name, role=args.role)
         print("Created %s" % args.add)
+        if generated:
+            print("Generated password: %s" % pw)
         return
     for u in conn.execute("SELECT email,name,role,last_login FROM users").fetchall():
         print("%-32s %-10s %s" % (u["email"], u["role"], u["last_login"] or "never"))
