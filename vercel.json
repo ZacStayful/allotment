@@ -1,12 +1,6 @@
 {
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python",
-      "config": { "includeFiles": "allotment/**" }
-    }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "/api/index" }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
