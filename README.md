@@ -9,29 +9,102 @@ against Postgres, because a serverless filesystem cannot keep a database file.
 
 ```bash
 ./plot init          # create plot.db, seed the plot, create the login
-./plot today         # the daily view
+./plot setup         # part one: build the plot, in order
+./plot today         # part two: the daily view
 ./plot serve         # the web view, on http://127.0.0.1:8765
 ```
 
-## The daily view
+## Two parts, because the plot has two lives
+
+A bare plot and a running plot want different things said to them, and the same
+list cannot say both. So the work is in two parts, and `plot today` knows which
+one you are in.
+
+**Part one — setting up.** Sixteen numbered steps from a strimmer to a bed you
+can sow. `plot setup` prints the sequence with what each step is for, what it is
+waiting on, and what to buy first. The numbers are the guide; the dependencies
+in the seed data are the enforcement, and a test holds the two together so the
+guide can never send you to a step that cannot be done. Step 8 — the beds filled
+— is the point food can go in the ground; steps 9 to 16 are the shed and the
+tunnel, which are worth having and are not worth waiting for.
+
+**Part two — running it.** Two lists. **Growing** is the food: sowing it,
+watering it, netting it, picking it. **Maintenance** is the plot the food lives
+on: weeds, paths, compost, shed, tunnel, the Association. Every job carries a
+`stream` saying which, and Today prints them under those two headings.
+
+Nothing from part two appears before the part of the plot it needs exists. Every
+job that assumes a bed, a tunnel or a cleared plot says so, and stays out of the
+way until it is true.
 
 ```
-SATURDAY 1 AUGUST          Rain 3d: 0mm   Max 21°C   Min 10°C   Soil: workable
+SUNDAY 2 AUGUST            Rain 3d: 0mm   Max 21°C   Min 10°C   Soil: workable
+
+SETUP  step 0 of 16 done - 8 more (24h 00m) before anything can be sown
+  ->  1. Apply in writing for shed and polytunnel Site       30m
+        Ready to do
+  ->  2. Clear the plot - strim and remove rubbis Both    4h 00m
+        Ready to do
+  `plot setup` for the whole sequence
+
+MAINTENANCE
+  1. Clean and oil the tools                      Either     40m
+     Due today
+
+  Also every visit: log the visit (1m)
+  Estimated total: 5h 11m         Planned for August: 29h, logged 0.0h
+  Waiting on the build: 9 growing and maintenance jobs. They appear as the steps are ticked off.
+  ! Stock              7 things to buy before jobs come due - Hardcore, Slabs, Scaffold boards and 4 more
+```
+
+Once the build is finished the setup block goes away and the two lists are the
+whole page:
+
+```
+SATURDAY 12 JUNE           Rain 3d: 0mm   Max 21°C   Min 10°C   Soil: workable
+
+GROWING
   1. Water the beds and pollinator bed            Either     25m
      Only 0 mm rain in the last 3 days
-  2. Apply in writing for shed and polytunnel per Site       30m
-     Window closes in 152 days
-  3. Clean and oil the tools                      Either     40m
+  2. Pick beans and courgettes                    Either     25m
+     Miss this and the plants stop cropping
+
+MAINTENANCE
+  1. Clean and oil the tools                      Either     40m
      Due today
   Also every visit: 20 minutes weeding on arrival (20m), log the visit (1m)
-  Estimated total: 1h 56m         Planned for August: 29h, logged 5.7h
-  Blocked: Water the polytunnel - Blocked until Fit the tunnel polythene is done
-  ! Stock              No Radish seed and Sow radish is due 2026-08-02
-  Next inspection: 2026-08-03 (2 days)
 ```
 
 Three to five jobs, one line each on why. If it printed twenty you would ignore
 all of them.
+
+## The log book
+
+`plot logbook`, or **Log book** in the web view. Every other page here
+aggregates — Money shows totals by budget line, Report shows the year — which is
+the right shape for deciding things and the wrong shape for remembering them.
+Enter a shop, a date and a note about which bed it was for, and a page that
+answers `growing_media  £412.00  3 items` has not lost the detail so much as
+never read it back, which amounts to the same thing.
+
+The log book is one reverse-chronological list of everything entered — spending,
+stock movements, visits, finished jobs, harvests, photographs — with nothing
+summarised away, and the note you typed in quotation marks underneath it.
+
+```
+2027-03-14
+  spend    £34.50 Wilko                                   running
+           2 m butterfly netting · protection
+           "for bed 3, ran short by a metre"
+  visit    Visit - 95 minutes                             fine
+           Both
+           "slugs got the lettuce"
+```
+
+`plot logbook --kind spend --since 2027-01-01`, and the same filters as tabs on
+the page. Spending records what the thing actually was as well as which budget
+line it came out of; a receipt photographed on the Photos page hangs off the
+spend it paid for.
 
 ## Login
 
@@ -68,13 +141,15 @@ public.
 
 | | |
 |---|---|
-| `plot today` | the daily view |
+| `plot setup` | part one: the build sequence, in order |
+| `plot today` | part two: the daily view |
+| `plot logbook` | everything entered, in full |
 | `plot week` | the weekly plan, with reasons and deferrals |
 | `plot jobs --days 14` | everything due, with run ids |
 | `plot done 14 95` | job run 14 took 95 minutes |
 | `plot arrive` / `start 14` / `stop 14` / `leave --mood fine` | timed visit |
 | `plot log 90 both fine --notes "slugs got the lettuce"` | retrospective log |
-| `plot spend 34.50 Wilko protection` | record spending |
+| `plot spend 34.50 Wilko protection --item "2 m netting"` | record spending |
 | `plot budget` | setup variance, running rate, sinking fund |
 | `plot stock` / `plot shop` | stock levels; shopping list with barrow trips |
 | `plot harvest courgette 1.4` | log a harvest in kg |
@@ -106,12 +181,21 @@ Every job resolves to a due date through one of seven rule types.
 | `inspection_linked` | `days_before` | tidy sweep, 3 days before inspection |
 | `succession` | `interval_days`, `window_start`, `window_end`, `max_sowings` | radish every 14 days, max 12 |
 
-Two behaviours worth knowing:
+Three behaviours worth knowing:
 
 - **A recurring job keeps one open run.** Miss five compost turns and you owe one
   turn, not five.
 - **Nothing is generated before the season start.** Take the plot on in August
   and you are not greeted with "plant maincrop potatoes, overdue by 109 days".
+- **A one-off is due for as long as its window is open**, not only on the day it
+  opens. Both openers of the build sequence used to start on 1 August, so a plot
+  taken on on the 2nd generated neither of them — step one never appeared and
+  every step behind it read as blocked for ever.
+
+A job also declares what it needs to exist before it makes sense. Watering the
+beds waits for the beds; the twenty minutes of weeding waits for the plot to be
+cleared, because until then the clearing *is* the weeding. That is the same
+dependency machinery as the build sequence, pointed at the running year.
 
 Priority is `urgency + consequence + weather_fit − blocked_penalty`. A blocked job
 carries a penalty of 100, so it can never float to the top of the list.
@@ -184,8 +268,10 @@ allotment/
   seeddata.py    zones, crops, 90 jobs, rotation, trouble spots, opening stock
   seed.py        loads it, idempotently
   rules.py       the seven rule types, materialisation, blocking
+  setup.py       part one: the build sequence, its state and its progress
   weather.py     Open-Meteo cache and derived values
-  priority.py    scoring, the daily view, risk flags
+  priority.py    scoring, the daily view, the growing/maintenance split
+  logbook.py     part two: everything entered, read back in full
   planner.py     the weekly plan
   stock.py       job-to-stock check, shopping list, barrow trips
   ledger.py      visits, timing, calibration
@@ -197,7 +283,7 @@ allotment/
   server.py      the web view
   cli.py         `plot`
 api/index.py     the Vercel entry point
-tests/           67 tests, run against SQLite and Postgres
+tests/           105 tests, run against SQLite and Postgres
 ```
 
 ## Deployment
@@ -254,6 +340,15 @@ plot, so there is no migration step to run. Seeding is idempotent, so two cold
 starts racing each other is harmless. Without `DATABASE_URL` the site serves a
 page telling you what is missing, rather than a 500 or Vercel's own 404.
 
+**Schema changes are self-applying.** `CREATE TABLE IF NOT EXISTS` does nothing
+to a table that already exists, so a column added to the schema never reaches a
+plot that is already running — and the hosted copy has no shell to run a
+migration in. `db.ADDED_COLUMNS` lists them and `db.migrate` adds whichever are
+missing on the next start. Creating a column is only half of it: `seed.backfill`
+then re-seeds the job metadata, because a column that exists and is empty
+everywhere fails silently — the whole setup sequence and both day-to-day lists
+would come back blank after a deploy with nothing to say why.
+
 **Why not SQLite on Vercel:** the filesystem is read-only apart from `/tmp`, and
 `/tmp` is wiped between cold starts. Marking a job done would appear to work and
 then vanish, which is worse than not deploying it at all.
@@ -286,7 +381,7 @@ The role wants `USAGE` and `CREATE` on its own schema, and nothing outside it.
 
 | | |
 |---|---|
-| `/` `/week` `/map` `/stock` `/shop` `/money` `/time` `/report` | the app, behind the login |
+| `/` `/setup` `/week` `/map` `/photos` `/stock` `/shop` `/money` `/logbook` `/time` `/report` | the app, behind the login |
 | `/login` `/logout` | session in and out |
 | `/favicon.ico` `/robots.txt` `/healthz` | served without a login |
 | `/static/<file>` | files from `allotment/static`, and nothing above it |
@@ -302,7 +397,7 @@ python3 -m unittest discover -s tests -v                    # SQLite
 ALLOTMENT_TEST_PG=postgresql://... python3 -m unittest discover -s tests   # Postgres
 ```
 
-The same 67 tests run against both backends. Each Postgres run builds and drops
+The same 105 tests run against both backends. Each Postgres run builds and drops
 its own schema, so it will not touch anything else in the database.
 
 ## Build order
@@ -311,6 +406,11 @@ Steps 1–6 of the plan are built: jobs engine and daily view, visit logging,
 weather rules, spending, stock with the job-to-stock check, and the crop-linked,
 dependency and succession rules. The mapping module, the weekly planner, the
 asset register and the reports are built too.
+
+The build sequence, the growing/maintenance split and the log book came out of
+using it: the daily view was asking for twenty minutes of weeding on a plot that
+had not been cleared, there was no order to start in, and everything typed into
+a form came back as a total.
 
 **Step 7, receipts, is deliberately not built.** The tables (`receipts`,
 `receipt_lines`) are in the schema and the web form does manual entry in about

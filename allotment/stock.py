@@ -40,10 +40,12 @@ def shortfalls(conn, job):
     return out
 
 
-def move(conn, stock_id, delta, reason, ref=None, when=None, visit_id=None):
+def move(conn, stock_id, delta, reason, ref=None, when=None, visit_id=None,
+         notes=None, unit_cost=None):
     when = parse(when or date.today()).isoformat()
-    conn.execute("INSERT INTO stock_moves(date,stock_id,delta,reason,ref,visit_id) "
-                 "VALUES(?,?,?,?,?,?)", (when, stock_id, delta, reason, ref, visit_id))
+    conn.execute("INSERT INTO stock_moves(date,stock_id,delta,reason,ref,visit_id,"
+                 "notes,unit_cost) VALUES(?,?,?,?,?,?,?,?)",
+                 (when, stock_id, delta, reason, ref, visit_id, notes, unit_cost))
     conn.execute("UPDATE stock SET qty=MAX(0, qty + ?) WHERE id=?", (delta, stock_id))
     conn.commit()
 

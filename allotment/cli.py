@@ -6,8 +6,8 @@ import os
 import sys
 from datetime import date, timedelta
 
-from . import (auth, config, db, ledger, money, planner, priority, rotation,
-               rules, seed, stock, sun, weather, weeds)
+from . import (auth, config, db, ledger, logbook, money, planner, priority,
+               rotation, rules, seed, setup, stock, sun, weather, weeds)
 from .rules import parse
 
 BOLD, DIM, OFF = "\033[1m", "\033[2m", "\033[0m"
@@ -26,6 +26,7 @@ def hm(minutes):
 def open_db(args):
     conn = db.connect(getattr(args, "db", None))
     db.init(conn)
+    seed.backfill(conn)          # a plot created before a column existed
     return conn
 
 
@@ -111,11 +112,45 @@ def render_today(v, err=None):
                                   v["weather"])]
     if err:
         out.append(_c("  weather cache stale: %s" % err, DIM))
-    if not v["top"]:
+
+    build = v["setup"]
+    if not build["complete"]:
+        out.append("")
+        out.append(_c("SETUP  step %d of %d done%s"
+                      % (build["done"], build["total"],
+                         "" if build["growing_ready"] else
+                         " - %d more (%s) before anything can be sown"
+                         % (build["steps_to_growing"],
+                            hm(build["minutes_to_growing"]))), BOLD))
+        for s in v["setup_next"]:
+            mark = "->" if s["state"] == "now" else "$ "
+            out.append("  %s %2d. %-40s %-7s %6s"
+                       % (mark, s["step"], s["title"][:40], s["owner"], hm(s["minutes"])))
+            out.append("        %s" % _c(s["why"], DIM))
+        if not v["setup_next"]:
+            out.append("  " + _c("Nothing startable - see `plot setup` for what is holding "
+                                 "it up", DIM))
+        out.append(_c("  `plot setup` for the whole sequence", DIM))
+
+    streams = v["streams"]
+    for name, label in (("growing", "GROWING"), ("maintenance", "MAINTENANCE")):
+        items = streams.get(name) or []
+        if not items:
+            continue
+        out.append("")
+        out.append(_c(label, BOLD))
+        for i, s in enumerate(items, 1):
+            out.append("  %d. %-44s %-7s %6s"
+                       % (i, s["title"][:44], s["owner"], hm(s["minutes"])))
+            out.append("     %s" % _c(s["why"], DIM))
+    if streams.get("setup") and build["complete"]:
+        out.append("")
+        for s in streams["setup"]:
+            out.append("  %-47s %-7s %6s" % (s["title"][:47], s["owner"], hm(s["minutes"])))
+    if not v["top"] and build["complete"]:
         out.append("  Nothing scheduled. Have a look round anyway.")
-    for i, s in enumerate(v["top"], 1):
-        out.append("  %d. %-44s %-7s %6s" % (i, s["title"][:44], s["owner"], hm(s["minutes"])))
-        out.append("     %s" % _c(s["why"], DIM))
+
+    out.append("")
     if v["every_visit"]:
         bits = ", ".join("%s (%s)" % (e["title"].lower(), hm(e["minutes"]))
                          for e in v["every_visit"])
@@ -126,14 +161,88 @@ def render_today(v, err=None):
     out.append("  Estimated total: %-14s Planned for %s: %sh, logged %sh"
                % (hm(v["minutes"]), d.strftime("%B"), v["hours"]["planned_h"],
                   v["hours"]["logged_h"]))
-    for b in v["blocked"][:5]:
-        out.append("  " + _c("Blocked: %s - %s" % (b["title"], b["blocked"]), BOLD))
+    if not build["complete"] and v["blocked"]:
+        # Every one of these is waiting on a step in the guide above. Listing
+        # five of them is five ways of saying "the plot is not built yet".
+        out.append("  " + _c("Waiting on the build: %d growing and maintenance jobs. "
+                             "They appear as the steps are ticked off."
+                             % len(v["blocked"]), DIM))
+    else:
+        for b in v["blocked"][:5]:
+            out.append("  " + _c("Blocked: %s - %s" % (b["title"], b["blocked"]), BOLD))
     for kind, msg in v["risks"][:5]:
         out.append("  " + _c("! %-18s %s" % (kind, msg), BOLD))
     if v["inspection"]:
         n = (v["inspection"] - d).days
         out.append(_c("  Next inspection: %s (%d days)" % (v["inspection"], n), DIM))
     return "\n".join(out)
+
+
+SETUP_MARK = {"done": "[x]", "now": "[ ]", "shopping": "[£]", "waiting": "[.]"}
+
+
+def cmd_setup(args):
+    """Part one: the plot, in the order it gets built."""
+    conn = open_db(args)
+    today = date.today()
+    refresh(conn, today, args.offline)
+    p = setup.progress(conn, today)
+
+    print("%s  %d of %d done, %s of work left"
+          % (_c("SETTING THE PLOT UP", BOLD), p["done"], p["total"],
+             hm(p["minutes_left"])))
+    if p["growing_ready"]:
+        print("  The beds are in. Food can go in the ground - `plot today` runs the "
+              "growing and maintenance lists from here.")
+    else:
+        print("  %d step%s (%s) between here and being able to sow anything."
+              % (p["steps_to_growing"], "" if p["steps_to_growing"] == 1 else "s",
+                 hm(p["minutes_to_growing"])))
+    print("")
+    for s in p["steps"]:
+        print("%s %2d. %-44s %-7s %6s"
+              % (SETUP_MARK.get(s["state"], "[ ]"), s["step"], s["title"][:44],
+                 s["owner"], hm(s["minutes"])))
+        if s["state"] != "done" and s["purpose"] and not args.short:
+            print("      %s" % _c(s["purpose"], DIM))
+        print("      %s" % _c(s["why"], DIM))
+        for b in s["buy"]:
+            print("      %s" % _c("buy: %g %s (have %g)"
+                                  % (b["need"], b["item"], b["have"]), DIM))
+        if s["grows_food_after"]:
+            print("      %s" % _c("--- past this point the plot can grow food ---", BOLD))
+    print("\n  [x] done  [ ] ready now  [£] waiting on materials  [.] waiting on "
+          "another step")
+    if p["next"]:
+        print("  Next: step %d, %s" % (p["next"]["step"], p["next"]["title"]))
+
+
+def cmd_logbook(args):
+    """Everything entered, with what was entered about it."""
+    conn = open_db(args)
+    rows = logbook.entries(conn, limit=args.limit, kinds=[args.kind] if args.kind else None,
+                           since=args.since)
+    t = logbook.totals(conn, since=args.since)
+    if not rows:
+        print("Nothing logged yet.")
+        return
+    print("%s  %d entries, %s to %s"
+          % (_c("LOG BOOK", BOLD), t["entries"], t["first"], t["last"]))
+    print("  £%.2f over %d spends, %d visits, %d jobs, %.1f kg picked"
+          % (t["spend"], t["spend_items"], t["visits"], t["jobs"], t["harvest_kg"]))
+    print("")
+    day = None
+    for r in rows:
+        if r["date"] != day:
+            day = r["date"]
+            print(_c(day, BOLD))
+        print("  %-8s %-46s %s" % (r["kind"], r["title"][:46],
+                                   _c(r["tag"] or "", DIM)))
+        detail = " ".join(str(x) for x in (r["what"], r["line"]) if x)
+        if detail:
+            print("           %s" % _c(detail, DIM))
+        if r["notes"]:
+            print("           %s" % _c('"%s"' % r["notes"], DIM))
 
 
 def cmd_week(args):
@@ -220,10 +329,11 @@ def cmd_log(args):
 def cmd_spend(args):
     conn = open_db(args)
     sid = money.add_spend(conn, args.amount, args.budget_line, vendor=args.vendor,
-                          when=args.date, notes=args.notes)
+                          when=args.date, notes=args.notes, category=args.item)
     v = money.variance(conn)
-    print("Spend %d: £%.2f %s / %s" % (sid, args.amount, args.vendor or "-",
-                                       args.budget_line))
+    print("Spend %d: £%.2f %s / %s%s" % (sid, args.amount, args.vendor or "-",
+                                         args.budget_line,
+                                         " - %s" % args.item if args.item else ""))
     print("Setup to date £%.2f of £%.0f-%.0f" % (v["setup_spent"], *v["setup_budget"]))
 
 
@@ -513,6 +623,16 @@ def build_parser():
     s.add_argument("--date"), s.add_argument("--limit", type=int, default=5)
     s.set_defaults(fn=cmd_today)
 
+    s = sub.add_parser("setup", help="part one: getting the plot ready to grow")
+    s.add_argument("--short", action="store_true", help="titles and status only")
+    s.set_defaults(fn=cmd_setup)
+
+    s = sub.add_parser("logbook", help="everything entered, in full")
+    s.add_argument("--limit", type=int, default=80)
+    s.add_argument("--kind", choices=logbook.KINDS)
+    s.add_argument("--since", help="YYYY-MM-DD")
+    s.set_defaults(fn=cmd_logbook)
+
     s = sub.add_parser("week", help="the weekly plan")
     s.add_argument("--date")
     s.set_defaults(fn=cmd_week)
@@ -555,6 +675,7 @@ def build_parser():
     s = sub.add_parser("spend")
     s.add_argument("amount", type=float), s.add_argument("vendor")
     s.add_argument("budget_line", choices=config.BUDGET_LINES)
+    s.add_argument("--item", help="what it actually was, e.g. '4 bags peat-free'")
     s.add_argument("--date"), s.add_argument("--notes")
     s.set_defaults(fn=cmd_spend)
 

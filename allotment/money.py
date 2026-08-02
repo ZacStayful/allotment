@@ -21,7 +21,13 @@ DEFAULT_RETAIL = 3.50
 
 
 def add_spend(conn, amount, budget_line, vendor=None, category=None, when=None,
-              notes=None, setup=None):
+              notes=None, setup=None, receipt_id=None):
+    """Record a spend. `category` is what the thing actually was.
+
+    Budget lines are a dozen buckets for the variance report; "growing_media"
+    six months later does not tell you it was four bags of peat-free for bed 3.
+    Both are kept, and the log book reads them back.
+    """
     if budget_line not in config.BUDGET_LINES:
         raise ValueError("Unknown budget line %r. One of: %s"
                          % (budget_line, ", ".join(config.BUDGET_LINES)))
@@ -29,12 +35,24 @@ def add_spend(conn, amount, budget_line, vendor=None, category=None, when=None,
     if setup is None:
         setup = 1 if budget_line in SETUP_LINES else 0
     cur = conn.execute(
-        "INSERT INTO spend(date,vendor,category,amount,budget_line,setup,notes) "
-        "VALUES(?,?,?,?,?,?,?)",
+        "INSERT INTO spend(date,vendor,category,amount,budget_line,setup,notes,receipt_id) "
+        "VALUES(?,?,?,?,?,?,?,?)",
         (when.isoformat(), vendor, category, float(amount), budget_line,
-         int(bool(setup)), notes))
+         int(bool(setup)), notes, receipt_id))
     conn.commit()
     return cur.lastrowid
+
+
+def recent(conn, limit=25, setup_only=None):
+    """Individual spends, newest first - the rows the totals are made of."""
+    q = "SELECT * FROM spend"
+    args = []
+    if setup_only is not None:
+        q += " WHERE setup=?"
+        args.append(1 if setup_only else 0)
+    q += " ORDER BY date DESC, id DESC LIMIT ?"
+    args.append(limit)
+    return [dict(r) for r in conn.execute(q, args).fetchall()]
 
 
 def by_line(conn, setup_only=None):

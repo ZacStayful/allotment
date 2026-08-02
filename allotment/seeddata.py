@@ -114,63 +114,129 @@ CROPS = [
 ]
 
 
+# Which of the two day-to-day lists a job belongs on, by category. Growing is
+# the food: sowing it, keeping it alive, picking it. Maintenance is the plot and
+# its structures: weeds, paths, compost, shed, tunnel, the Association. A job
+# passes stream= to override the default where the category is a poor guide.
+DEFAULT_STREAM = {
+    "build": "setup", "soil": "growing", "sow": "growing", "plant": "growing",
+    "tend": "growing", "harvest": "growing",
+    "compost": "maintenance", "maintain": "maintenance", "admin": "maintenance",
+}
+STREAMS = ("setup", "growing", "maintenance")
+
+
 def J(title, category, owner, mins, rule_type, params, **kw):
     d = dict(title=title, category=category, owner=owner, est_minutes=mins,
              rule_type=rule_type, rule_params=params)
     d.update(kw)
+    d.setdefault("stream", DEFAULT_STREAM.get(category, "maintenance"))
     return d
 
 
-# --- build sequence (§19 jobs 1-21). One-offs, chained by dependency. ---
+# --- Part one: getting the plot ready to grow food (§19 jobs 1-21).
+#
+# One-offs, chained by dependency, and numbered in the order they are actually
+# done. `step` is the guide; the dependencies are the enforcement, and the two
+# must agree - a step may only depend on a lower-numbered one. GROWING_READY
+# below marks the point where food can go in the ground; everything after it is
+# the shed and the tunnel, which are worth having and are not worth waiting for.
+#
+# `notes` on a setup job is what the step is for, in a sentence. It is the line
+# the guide prints under the title, so it says why rather than restating what.
 BUILD = [
-    J("Clear the plot - strim and remove rubbish", "build", "Both", 240, "fixed_window",
-      {"start_md": "08-01", "end_md": "09-30"}, one_off=1, consequence=4, key="clear_plot"),
+    J("Apply in writing for shed and polytunnel permission", "admin", "Site", 30,
+      "dependency", {}, one_off=1, consequence=5, step=1, stream="setup",
+      key="permission",
+      notes="First, because the Committee takes weeks and half the build waits on it. "
+            "Nothing else here depends on the answer, so post it and carry on."),
+    J("Clear the plot - strim and remove rubbish", "build", "Both", 240, "dependency",
+      {}, one_off=1, consequence=4, step=2, stream="setup", key="clear_plot",
+      notes="Everything else needs to be able to see the ground. This is also the "
+            "only weeding that matters until there is something to weed around."),
     J("Mark out zones with string lines", "build", "Both", 90, "dependency",
-      {"depends_on": ["clear_plot"]}, one_off=1, consequence=3, key="mark_out"),
+      {"depends_on": ["clear_plot"]}, one_off=1, consequence=3, step=3, stream="setup",
+      key="mark_out",
+      notes="Beds, paths and the one metre fence strip, pegged out before anything "
+            "is built. Moving a string line costs nothing; moving a bed costs a day."),
     J("Survey the fall across the plot", "build", "Site", 60, "dependency",
-      {"depends_on": ["mark_out"]}, one_off=1, consequence=2, key="survey"),
+      {"depends_on": ["mark_out"]}, one_off=1, consequence=2, step=4, stream="setup",
+      key="survey",
+      notes="Where the water goes. Clay plus an unnoticed fall is how a path becomes "
+            "a stream and a bed becomes a puddle."),
     J("Lay the hardstanding", "build", "Site", 240, "dependency",
-      {"depends_on": ["survey"]}, one_off=1, consequence=3, zone_id="hard",
-      stock_needs=[["Hardcore", 1], ["Slabs", 12]], key="hardstanding"),
-    J("Apply in writing for shed and polytunnel permission", "admin", "Site", 30, "fixed_window",
-      {"start_md": "08-01", "end_md": "12-31"}, one_off=1, consequence=5, key="permission"),
+      {"depends_on": ["survey"]}, one_off=1, consequence=3, step=5, stream="setup",
+      zone_id="hard", stock_needs=[["Hardcore", 1], ["Slabs", 12]], key="hardstanding",
+      notes="Every barrow load lands here, and there is no vehicle access. Build it "
+            "before the deliveries, not after."),
+    J("Build the compost bays from pallets", "build", "Site", 120, "dependency",
+      {"depends_on": ["mark_out"]}, one_off=1, consequence=2, step=6, stream="setup",
+      zone_id="comp", key="compost_bays",
+      notes="Somewhere for the clearance waste to go, so it is not still in a heap "
+            "at the first inspection."),
+    J("Build the raised beds", "build", "Both", 360, "dependency",
+      {"depends_on": ["mark_out"]}, one_off=1, consequence=4, step=7, stream="setup",
+      stock_needs=[["Scaffold boards", 12]], key="build_beds",
+      notes="Four beds, 2.4 x 1.2 m. Raised beds are how you grow on clay without "
+            "waiting for the clay to agree."),
+    J("Fill the beds with compost and topsoil", "soil", "Both", 300, "dependency",
+      {"depends_on": ["build_beds"]}, one_off=1, consequence=4, step=8, stream="setup",
+      stock_needs=[["Multipurpose compost", 400]], key="fill_beds",
+      notes="The last step before food. Once the beds are full the plot can be sown, "
+            "and the growing list starts appearing on its own."),
+    J("Lay membrane and woodchip on the paths", "build", "Both", 180, "dependency",
+      {"depends_on": ["build_beds"]}, one_off=1, consequence=2, step=9, stream="setup",
+      zone_id="path", stock_needs=[["Woodchip", 2000]], key="paths",
+      notes="Clay paths in winter are the reason people stop visiting in winter."),
     J("Confirm tunnel placement approved by Committee", "admin", "Site", 20, "dependency",
-      {"depends_on": ["permission"]}, one_off=1, consequence=5, key="tunnel_approved"),
+      {"depends_on": ["permission"]}, one_off=1, consequence=5, step=10, stream="setup",
+      key="tunnel_approved",
+      notes="Placement is approved separately from permission. Check it before "
+            "levelling ground you may have to un-level."),
     J("Build the shed base", "build", "Site", 300, "dependency",
       {"depends_on": ["hardstanding", "permission"]}, one_off=1, consequence=3,
-      zone_id="shed", needs_permission=1, key="shed_base"),
+      step=11, stream="setup", zone_id="shed", needs_permission=1, key="shed_base",
+      notes="Level and free-draining. A shed on a bad base is a shed with a bad door."),
     J("Erect the shed", "build", "Both", 300, "dependency",
-      {"depends_on": ["shed_base"]}, one_off=1, consequence=3, zone_id="shed",
-      needs_permission=1, key="shed"),
+      {"depends_on": ["shed_base"]}, one_off=1, consequence=3, step=12, stream="setup",
+      zone_id="shed", needs_permission=1, key="shed",
+      notes="6 x 4 ft maximum under Association rules. Tools stop living in the car."),
     J("Fit guttering and connect water butts", "build", "Site", 120, "dependency",
-      {"depends_on": ["shed"]}, one_off=1, consequence=4, zone_id="butt", key="butts"),
+      {"depends_on": ["shed"]}, one_off=1, consequence=4, step=13, stream="setup",
+      zone_id="butt", key="butts",
+      notes="The tap is off November to March. Three 210 L butts off the shed roof "
+            "are the only water on the plot for five months of the year."),
     J("Level the polytunnel site", "soil", "Both", 180, "dependency",
-      {"depends_on": ["tunnel_approved"]}, one_off=1, consequence=3, zone_id="tun",
-      needs_permission=1, key="tunnel_site"),
+      {"depends_on": ["tunnel_approved"]}, one_off=1, consequence=3, step=14,
+      stream="setup", zone_id="tun", needs_permission=1, key="tunnel_site",
+      notes="Flat within a few centimetres, or the frame will not square up."),
     J("Erect the polytunnel frame", "build", "Both", 300, "dependency",
-      {"depends_on": ["tunnel_site"]}, one_off=1, consequence=3, zone_id="tun",
-      needs_permission=1, key="tunnel_frame"),
+      {"depends_on": ["tunnel_site"]}, one_off=1, consequence=3, step=15, stream="setup",
+      zone_id="tun", needs_permission=1, key="tunnel_frame",
+      notes="4 x 2 m maximum on a full plot."),
     J("Fit the tunnel polythene", "build", "Both", 240, "dependency",
-      {"depends_on": ["tunnel_frame"]}, one_off=1, consequence=4, zone_id="tun",
-      needs_permission=1, notes="Hard block over 10 kph wind.", key="tunnel_poly"),
-    J("Build the raised beds", "build", "Both", 360, "dependency",
-      {"depends_on": ["mark_out"]}, one_off=1, consequence=4,
-      stock_needs=[["Scaffold boards", 12]], key="build_beds"),
-    J("Fill the beds with compost and topsoil", "soil", "Both", 300, "dependency",
-      {"depends_on": ["build_beds"]}, one_off=1, consequence=4,
-      stock_needs=[["Multipurpose compost", 400]], key="fill_beds"),
-    J("Lay membrane and woodchip on the paths", "build", "Both", 180, "dependency",
-      {"depends_on": ["build_beds"]}, one_off=1, consequence=2, zone_id="path",
-      stock_needs=[["Woodchip", 2000]], key="paths"),
-    J("Build the compost bays from pallets", "build", "Site", 120, "dependency",
-      {"depends_on": ["mark_out"]}, one_off=1, consequence=2, zone_id="comp", key="compost_bays"),
+      {"depends_on": ["tunnel_frame"]}, one_off=1, consequence=4, step=16, stream="setup",
+      zone_id="tun", needs_permission=1, key="tunnel_poly",
+      notes="Hard block over 10 kph wind - two people and a sheet of polythene in a "
+            "breeze is how polythene ends up in the hedge. Tomatoes and cucumbers "
+            "start appearing on the growing list once this is done."),
 ]
 
-# --- the recurring year (§4, §14, §15) ---
+# The step at which the plot can grow food. Steps after it are the shed and the
+# tunnel: real improvements, but nothing is waiting on them to be sown.
+GROWING_READY = 8
+
+# --- Part two: the day-to-day year, once the plot is set up (§4, §14, §15).
+#
+# Every job here that assumes something exists says so with requires=[...]. A
+# plot with nothing on it should not be asked for twenty minutes of weeding, or
+# told to water beds that have not been built - the setup guide is the whole of
+# the work until the ground is ready, and a list of jobs for an imaginary plot
+# is how a system gets ignored.
 JOBS = [
     # every visit
     J("20 minutes weeding on arrival", "tend", "Both", 20, "every_visit", {},
-      every_visit=1, consequence=3),
+      every_visit=1, consequence=3, stream="maintenance", requires=["clear_plot"]),
     J("Open the tunnel (before 9am)", "tend", "Either", 2, "every_visit",
       {"from_md": "03-01", "to_md": "10-31"}, every_visit=1, consequence=4, zone_id="tun", requires=["tunnel_poly"]),
     J("Shut the tunnel (before dusk)", "tend", "Either", 2, "every_visit",
@@ -181,21 +247,22 @@ JOBS = [
     J("Pay the subscription", "admin", "Site", 15, "fixed_window",
       {"start_md": "01-01", "end_md": "01-31"}, consequence=5),
     J("Tidy sweep and path edges before inspection", "tend", "Both", 45, "inspection_linked",
-      {"days_before": 3}, consequence=4),
+      {"days_before": 3}, consequence=4, stream="maintenance", requires=["clear_plot"]),
     J("Plot inspection due", "admin", "Both", 0, "inspection_linked",
       {"days_before": 0}, consequence=5),
     J("Review seed viability, bin what has expired", "admin", "Grower", 30, "fixed_window",
-      {"start_md": "01-05", "end_md": "01-25"}, consequence=3),
+      {"start_md": "01-05", "end_md": "01-25"}, consequence=3, stream="growing"),
     J("Order seeds and seed potatoes", "admin", "Grower", 45, "fixed_window",
-      {"start_md": "12-01", "end_md": "01-31"}, consequence=4),
+      {"start_md": "12-01", "end_md": "01-31"}, consequence=4, stream="growing"),
     J("Plan next year and propose the rotation", "admin", "Both", 60, "fixed_window",
-      {"start_md": "11-01", "end_md": "11-30"}, consequence=3),
+      {"start_md": "11-01", "end_md": "11-30"}, consequence=3, stream="growing"),
 
     # --- January ---
     J("Turn the compost", "compost", "Either", 30, "recurring",
       {"interval_days": 30}, zone_id="comp", consequence=1, requires=["compost_bays"]),
     J("Empty compost bays onto the beds", "compost", "Both", 120, "fixed_window",
-      {"start_md": "01-05", "end_md": "02-15"}, zone_id="comp", consequence=2, requires=["compost_bays"]),
+      {"start_md": "01-05", "end_md": "02-15"}, zone_id="comp", consequence=2,
+      requires=["compost_bays", "fill_beds"]),
     J("Check shed felt, hinges and padlock", "maintain", "Site", 20, "recurring",
       {"interval_days": 90}, zone_id="shed", consequence=3, requires=["shed"]),
     J("Check tunnel polythene tension, doors and anchoring", "maintain", "Site", 25, "recurring",
@@ -205,7 +272,8 @@ JOBS = [
 
     # --- February ---
     J("Rough-dig the potato ground", "soil", "Both", 120, "fixed_window",
-      {"start_md": "02-01", "end_md": "03-10"}, zone_id="spud", consequence=3),
+      {"start_md": "02-01", "end_md": "03-10"}, zone_id="spud", consequence=3,
+      requires=["clear_plot"]),
     J("Chit the seed potatoes at home", "sow", "Grower", 20, "fixed_window",
       {"start_md": "02-01", "end_md": "02-20"}, consequence=4,
       stock_needs=[["Seed potatoes", 1]]),
@@ -230,11 +298,12 @@ JOBS = [
       crop_id="onion", stock_needs=[["Onion sets", 1]], requires=["fill_beds"]),
     J("Sow the green manure strip", "sow", "Either", 30, "fixed_window",
       {"start_md": "03-01", "end_md": "04-30"}, zone_id="green", consequence=2,
-      stock_needs=[["Phacelia seed", 1]]),
+      stock_needs=[["Phacelia seed", 1]], requires=["clear_plot"]),
     J("Sow the pollinator bed", "sow", "Grower", 40, "fixed_window",
       {"start_md": "03-15", "end_md": "05-15"}, zone_id="poll", consequence=2, requires=["fill_beds"]),
     J("First weeding push of the year", "tend", "Both", 90, "fixed_window",
-      {"start_md": "03-01", "end_md": "03-31"}, consequence=3),
+      {"start_md": "03-01", "end_md": "03-31"}, consequence=3, stream="maintenance",
+      requires=["clear_plot"]),
 
     # --- succession sowings (§12) ---
     J("Sow radish", "sow", "Grower", 15, "succession",
@@ -250,13 +319,13 @@ JOBS = [
     # --- April, peak month ---
     J("Plant the first early potatoes", "plant", "Site", 60, "crop_linked",
       {"crop_id": "potato_first", "anchor": "plant", "offset_days": 0}, zone_id="spud",
-      crop_id="potato_first", consequence=4),
+      crop_id="potato_first", consequence=4, requires=["clear_plot"]),
     J("Plant the second early potatoes", "plant", "Site", 60, "crop_linked",
       {"crop_id": "potato_second", "anchor": "plant", "offset_days": 0}, zone_id="spud",
-      crop_id="potato_second", consequence=4),
+      crop_id="potato_second", consequence=4, requires=["clear_plot"]),
     J("Plant the maincrop potatoes", "plant", "Site", 90, "crop_linked",
       {"crop_id": "potato_main", "anchor": "plant", "offset_days": 0}, zone_id="spud",
-      crop_id="potato_main", consequence=4),
+      crop_id="potato_main", consequence=4, requires=["clear_plot"]),
     J("Earth up the potatoes", "tend", "Site", 40, "crop_linked",
       {"crop_id": "potato_first", "anchor": "plant", "offset_days": 21,
        "repeat_days": 14, "repeat_count": 3}, zone_id="spud", crop_id="potato_first",
@@ -268,7 +337,8 @@ JOBS = [
       crop_id="kale", consequence=5, stock_needs=[["Butterfly netting", 1]],
       notes="Net from the day you plant out, not when damage appears.", requires=["fill_beds"]),
     J("Sow beans direct", "sow", "Grower", 40, "fixed_window",
-      {"start_md": "05-20", "end_md": "06-15"}, zone_id="bean", consequence=3),
+      {"start_md": "05-20", "end_md": "06-15"}, zone_id="bean", consequence=3,
+      requires=["clear_plot"]),
 
     # --- May ---
     J("Plant out the tomatoes in the tunnel", "plant", "Grower", 60, "crop_linked",
@@ -279,7 +349,8 @@ JOBS = [
       crop_id="cucumber", consequence=3, requires=["tunnel_poly"]),
     J("Build the bean wigwams", "build", "Site", 60, "fixed_window",
       {"start_md": "05-01", "end_md": "05-25"}, zone_id="bean", consequence=4,
-      stock_needs=[["Bean canes", 20], ["Twine", 1]], requires=["clear_plot"]),
+      stream="growing", stock_needs=[["Bean canes", 20], ["Twine", 1]],
+      requires=["clear_plot"]),
     J("Plant out the courgettes", "plant", "Grower", 30, "crop_linked",
       {"crop_id": "courgette", "anchor": "plant", "offset_days": 0}, zone_id="b4",
       crop_id="courgette", consequence=4, requires=["fill_beds"]),
@@ -307,7 +378,8 @@ JOBS = [
       crop_id="potato_first", consequence=4, requires=["plant_the_first_early_potatoes"]),
     J("Plant the rhubarb crowns and currant bushes", "plant", "Both", 120, "fixed_window",
       {"start_md": "11-01", "end_md": "03-15"}, zone_id="fruit", consequence=3, one_off=1,
-      key="plant_fruit", notes="Bare root and crowns only. No harvest from the rhubarb in year one."),
+      key="plant_fruit", requires=["clear_plot"],
+      notes="Bare root and crowns only. No harvest from the rhubarb in year one."),
     J("Summer prune the currants", "tend", "Grower", 30, "fixed_window",
       {"start_md": "07-01", "end_md": "08-15"}, zone_id="fruit", consequence=2, requires=["plant_fruit"]),
     J("Sow autumn salad", "sow", "Grower", 20, "fixed_window",
@@ -324,9 +396,9 @@ JOBS = [
     J("Dry and store the onions", "harvest", "Grower", 45, "fixed_window",
       {"start_md": "08-15", "end_md": "09-30"}, consequence=4, requires=["plant_the_onion_sets"]),
     J("Sow green manure on cleared ground", "sow", "Either", 30, "fixed_window",
-      {"start_md": "09-01", "end_md": "10-15"}, consequence=3),
+      {"start_md": "09-01", "end_md": "10-15"}, consequence=3, requires=["clear_plot"]),
     J("Collect seed", "admin", "Grower", 30, "fixed_window",
-      {"start_md": "08-15", "end_md": "09-30"}, consequence=1),
+      {"start_md": "08-15", "end_md": "09-30"}, consequence=1, stream="growing"),
 
     # --- October ---
     J("Clear the beds and mulch", "soil", "Both", 150, "fixed_window",
@@ -350,29 +422,31 @@ JOBS = [
       {"start_md": "12-01", "end_md": "02-28"}, zone_id="fruit", consequence=2, requires=["plant_fruit"]),
     J("Cut down and lay the green manure", "soil", "Both", 60, "fixed_window",
       {"start_md": "02-15", "end_md": "04-10"}, zone_id="green", consequence=3,
-      notes="Before it sets seed."),
+      requires=["sow_the_green_manure_strip"], notes="Before it sets seed."),
     J("Top up the bed compost", "soil", "Both", 90, "fixed_window",
       {"start_md": "03-01", "end_md": "04-15"}, consequence=3,
       stock_needs=[["Multipurpose compost", 300]], requires=["fill_beds"]),
 
     # --- weather-conditional (§3) ---
     J("Water the beds and pollinator bed", "tend", "Either", 25, "weather_conditional",
-      {"condition": "dry_3d", "from_md": "04-01", "to_md": "09-30"}, consequence=4),
+      {"condition": "dry_3d", "from_md": "04-01", "to_md": "09-30"}, consequence=4,
+      requires=["fill_beds"]),
     J("Water the polytunnel", "tend", "Either", 10, "weather_conditional",
       {"condition": "always", "from_md": "03-01", "to_md": "10-31"}, zone_id="tun",
       consequence=5, notes="The tunnel never gets rain. Catches everyone out.", requires=["tunnel_poly"]),
     J("Slug patrol after dark", "tend", "Either", 20, "weather_conditional",
       {"condition": "slug_night", "from_md": "04-01", "to_md": "06-30"}, consequence=4,
-      zone_id="clear", notes="Start in the damp shaded SE corner."),
+      zone_id="clear", requires=["fill_beds"],
+      notes="Start in the damp shaded SE corner."),
     J("Ventilate the tunnel - open by 9am, shut by dusk", "tend", "Either", 5,
       "weather_conditional", {"condition": "warm_day", "from_md": "03-01", "to_md": "10-31"},
       zone_id="tun", consequence=4, requires=["tunnel_poly"]),
     J("Fleece the tender plants - frost forecast", "tend", "Either", 25, "weather_conditional",
       {"condition": "frost_risk", "from_md": "03-01", "to_md": "05-31"}, consequence=5,
-      stock_needs=[["Fleece", 1]]),
+      stock_needs=[["Fleece", 1]], requires=["fill_beds"]),
     J("Check tunnel anchoring and bean wigwams - gale forecast", "maintain", "Site", 20,
       "weather_conditional", {"condition": "gale_risk", "from_md": "01-01", "to_md": "12-31"},
-      consequence=5),
+      consequence=5, requires=["tunnel_frame"]),
     J("Top up the water butts from the tap", "maintain", "Site", 20, "weather_conditional",
       {"condition": "butts_low", "from_md": "04-01", "to_md": "10-31"}, zone_id="butt",
       consequence=3, requires=["butts"]),

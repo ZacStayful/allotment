@@ -131,6 +131,7 @@ def _due_every_visit(conn, job, p, start, end, wx):
 def _due_fixed_window(conn, job, p, start, end, wx):
     out = []
     freq = p.get("frequency", "once")
+    one_off = job["one_off"] and _latest_run(conn, job["id"]) is None
     for year in range(start.year - 1, end.year + 2):
         try:
             a = md(year, p["start_md"])
@@ -146,9 +147,13 @@ def _due_fixed_window(conn, job, p, start, end, wx):
                     out.append((cur, seq))
                 cur += timedelta(days=7)
                 seq += 1
-        else:
-            if start <= a <= end:
-                out.append((a, 0))
+        elif start <= a <= end:
+            out.append((a, 0))
+        elif one_off and a < start <= b:
+            # Take the plot on halfway through the window and the one thing that
+            # had to happen this year is silently skipped until the window comes
+            # round again. A one-off is due for as long as its window is open.
+            out.append((start, 0))
     return out
 
 

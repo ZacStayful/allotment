@@ -12,8 +12,9 @@ import urllib.parse
 from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import (auth, config, db, ledger, money, multipart, photos, planner,
-               priority, rotation, seed, stock, sun, weeds)
+from . import (auth, config, db, ledger, logbook, money, multipart, photos,
+               planner, priority, rotation, seed, stock, sun, weeds)
+from . import setup as setup_mod
 from .cli import hm, refresh
 from .rules import parse
 
@@ -35,9 +36,10 @@ def close_quietly(conn):
         pass
 
 
-NAV = [("/", "Today"), ("/week", "Week"), ("/map", "Map"), ("/photos", "Photos"),
-       ("/stock", "Stock"), ("/shop", "Shop"), ("/money", "Money"),
-       ("/time", "Time"), ("/report", "Report")]
+NAV = [("/", "Today"), ("/setup", "Setup"), ("/week", "Week"), ("/map", "Map"),
+       ("/photos", "Photos"), ("/stock", "Stock"), ("/shop", "Shop"),
+       ("/money", "Money"), ("/logbook", "Log book"), ("/time", "Time"),
+       ("/report", "Report")]
 
 
 def e(s):
@@ -68,7 +70,7 @@ nav a:hover,nav a.on{color:#111917;background:var(--sun);border-color:var(--sun)
 margin-bottom:9px}
 .job.blocked{border-left-color:var(--alert);opacity:.75}
 .job h3{margin:0 0 3px;font-size:16px;font-weight:800}
-.job .why{font-family:var(--data);font-size:11.5px;color:var(--sun);letter-spacing:.03em}
+.why{font-family:var(--data);font-size:11.5px;color:var(--sun);letter-spacing:.03em}
 .job .meta{font-family:var(--data);font-size:11px;color:var(--dim);white-space:nowrap}
 .risk{border:1px solid var(--alert);border-left:3px solid var(--alert);padding:9px 12px;
 margin-bottom:8px;font-size:14px}
@@ -129,6 +131,40 @@ details[open] summary:before{content:"\\2212 "}
 }
 .foot{font-family:var(--data);font-size:10.5px;color:var(--dim);letter-spacing:.09em;
 text-transform:uppercase;margin-top:26px;border-top:1px solid var(--rule);padding-top:12px}
+/* Setup: a numbered sequence, so the number is the loudest thing on the row and
+   the state is legible without reading the words. */
+.step{display:flex;gap:12px;border:1px solid var(--rule);border-left:3px solid var(--rule);
+padding:11px 13px;margin-bottom:8px;align-items:flex-start}
+.step.now{border-left-color:var(--sun)}
+.step.shopping{border-left-color:var(--alert)}
+.step.done{opacity:.55}
+.step .n{font-family:var(--data);font-size:19px;font-weight:800;color:var(--sun);
+min-width:30px;text-align:right;line-height:1.15}
+.step.done .n{color:var(--green)}
+.step>div:last-child{flex:1;min-width:0}
+.step h3{margin:0 0 3px;font-size:16px;font-weight:800}
+.step.done h3{text-decoration:line-through}
+.step .purpose{font-size:14px;color:var(--dim);line-height:1.45;margin:3px 0 0}
+.bar{height:6px;background:var(--ground-2);border:1px solid var(--rule);margin:4px 0 14px}
+.bar>i{display:block;height:100%;background:var(--green)}
+.mark{display:flex;align-items:center;gap:9px;margin:14px 0;font-family:var(--data);
+font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--green)}
+.mark:before,.mark:after{content:"";flex:1;height:1px;background:var(--green);opacity:.5}
+/* Log book: a date rail down the left, every entry in full underneath it. */
+.day{font-family:var(--data);font-size:11px;font-weight:700;letter-spacing:.11em;
+color:var(--sun);margin:18px 0 6px;padding-bottom:4px;border-bottom:1px solid var(--rule)}
+.entry{display:flex;gap:11px;padding:8px 2px;border-bottom:1px solid rgba(74,92,82,.4);
+align-items:flex-start}
+.entry .k{font-family:var(--data);font-size:9.5px;font-weight:700;letter-spacing:.1em;
+text-transform:uppercase;color:var(--dim);border:1px solid var(--rule);padding:3px 6px;
+min-width:74px;text-align:center;flex:0 0 auto}
+.entry .k.spend{color:var(--sun);border-color:var(--sun)}
+.entry .k.harvest{color:var(--green);border-color:var(--green)}
+.entry>div:last-child{flex:1;min-width:0}
+.entry b{font-size:15px;font-weight:700;display:block}
+.entry .det{font-family:var(--data);font-size:11.5px;color:var(--dim);letter-spacing:.02em}
+.entry .said{font-size:14px;color:var(--bone);margin-top:3px}
+.entry img{height:44px;width:44px;object-fit:cover;border:1px solid var(--rule)}
 """
 
 
@@ -166,6 +202,7 @@ def view_today(conn, sess, q):
     today = parse(q.get("date", [None])[0]) if q.get("date") else date.today()
     wx, err = refresh(conn, today)
     v = priority.plan_day(conn, today, wx)
+    build = v["setup"]
     out = ['<p class=stat>%s &middot; %s</p>' % (e(today.strftime("%A %d %B")), e(v["weather"]))]
     if err:
         out.append('<p class=stat>Weather cache stale: %s</p>' % e(err))
@@ -173,11 +210,37 @@ def view_today(conn, sess, q):
     for kind, msg in v["risks"]:
         out.append('<div class=risk><b>%s</b>%s</div>' % (e(kind), e(msg)))
 
-    out.append("<h2>Today</h2>")
-    if not v["top"]:
-        out.append("<p>Nothing scheduled. Have a look round anyway.</p>")
-    for s in v["top"]:
+    # Part one, while there is still a part one. Nothing else on this page makes
+    # sense on a plot that is not built yet, so it goes above everything.
+    if not build["complete"]:
+        out.append('<h2>Setting up &middot; step %d of %d</h2>' % (build["done"], build["total"]))
+        out.append(progress_bar(build))
+        out.append('<p>%s</p>' % e(
+            "The beds are in - food can go in the ground. The rest of the sequence is "
+            "the shed and the tunnel, and nothing is waiting on them."
+            if build["growing_ready"] else
+            "%d step%s left (%s of work) before anything can be sown."
+            % (build["steps_to_growing"], "" if build["steps_to_growing"] == 1 else "s",
+               hm(build["minutes_to_growing"]))))
+        for s in v["setup_next"]:
+            out.append(step_card(s, sess, compact=True))
+        if not v["setup_next"]:
+            out.append("<p>No step can be started today. The Setup page says what each "
+                       "one is waiting for.</p>")
+        out.append('<p><a class=btn href="/setup">The whole sequence</a></p>')
+
+    for name, label in (("growing", "Growing"), ("maintenance", "Maintenance")):
+        items = v["streams"].get(name) or []
+        if not items:
+            continue
+        out.append("<h2>%s</h2>" % label)
+        for s in items:
+            out.append(job_card(s, sess))
+    if build["complete"] and not v["top"]:
+        out.append("<h2>Today</h2><p>Nothing scheduled. Have a look round anyway.</p>")
+    for s in v["streams"].get("setup") or []:
         out.append(job_card(s, sess))
+
     if v["every_visit"]:
         out.append("<h2>Every visit</h2>")
         for ev in v["every_visit"]:
@@ -188,10 +251,13 @@ def view_today(conn, sess, q):
         out.append("<h2>Also due</h2>")
         for s in v["also"][:8]:
             out.append(job_card(s, sess))
-    if v["blocked"]:
+    if v["blocked"] and build["complete"]:
         out.append("<h2>Blocked</h2>")
         for s in v["blocked"][:10]:
             out.append(job_card(s, sess, blocked=True))
+    elif v["blocked"]:
+        out.append('<p class=stat>%d growing and maintenance jobs are waiting on the '
+                   'build. They appear as the steps are ticked off.</p>' % len(v["blocked"]))
 
     out.append('<p class=stat>Estimated total %s &middot; planned for %s %sh, logged %sh</p>'
                % (hm(v["minutes"]), today.strftime("%B"), v["hours"]["planned_h"],
@@ -228,6 +294,126 @@ def job_card(s, sess, blocked=False):
             '</div></div>%s</details></div></form></div>'
             % (e(sess["csrf"]), s["run_id"], e(s["job_id"]), head,
                s["minutes"], photo_field(ident, "Photo of it")))
+
+
+STEP_WHY = {"done": "Done", "now": "Ready to do now", "shopping": "Waiting on materials",
+            "waiting": "Waiting on an earlier step"}
+
+
+def progress_bar(build):
+    pct = round(100.0 * build["done"] / max(build["total"], 1))
+    return ('<div class=bar><i style="width:%d%%"></i></div>'
+            '<p class=stat>%d of %d done &middot; %s of building left</p>'
+            % (pct, build["done"], build["total"], hm(build["minutes_left"])))
+
+
+def step_card(s, sess, compact=False):
+    """One setup step. Done is one tap, like every other job on the site.
+
+    The step number is the point of the card: the complaint that started this
+    was not knowing where to begin, and a list without an order does not answer
+    that however good each line is.
+    """
+    # On Today the status line is already "Needs 2000 Woodchip (have 0)", so the
+    # shopping list underneath it is the same sentence twice.
+    buy = ""
+    if s["buy"] and not compact:
+        buy = ('<p class=why>Buy first: %s</p>'
+               % e(", ".join("%g %s" % (b["need"], b["item"]) for b in s["buy"])))
+    body = ('<h3>%s</h3><span class=why>%s</span>%s%s'
+            % (e(s["title"]), e(s["why"]),
+               "" if compact or not s["purpose"] else '<p class=purpose>%s</p>' % e(s["purpose"]),
+               buy))
+    # No Done button on a step that is waiting for an earlier one. Offering it
+    # invites ticking step 11 before step 5 and quietly breaking the order the
+    # whole page exists to give.
+    if s["state"] in (setup_mod.NOW, setup_mod.SHOPPING) and s["run_id"]:
+        body += ('<form method=post action="/done" enctype="multipart/form-data">'
+                 '<input type=hidden name=csrf value="%s">'
+                 '<input type=hidden name=run_id value="%d">'
+                 '<input type=hidden name=back value="%s">'
+                 '<div class=acts><button class="go big">Step %d done</button>'
+                 '<details><summary>Add time or a note</summary>'
+                 '<div class=row><div><label>Minutes it took</label>'
+                 '<input name=minutes type=number inputmode=numeric placeholder="%d"></div>'
+                 '<div><label>Note</label><input name=notes></div></div></details></div></form>'
+                 % (e(sess["csrf"]), s["run_id"], "/setup" if not compact else "/",
+                    s["step"], s["minutes"]))
+    return ('<div class="step %s"><div class=n>%s</div><div>%s'
+            '<span class=meta>%s &middot; %s</span></div></div>'
+            % (e(s["state"]), "&#10003;" if s["state"] == "done" else s["step"],
+               body, e(s["owner"]), hm(s["minutes"])))
+
+
+def view_setup(conn, sess, q):
+    """Part one, in order: what to do to make the plot able to grow food."""
+    today = date.today()
+    refresh(conn, today)
+    p = setup_mod.progress(conn, today)
+    out = [progress_bar(p)]
+    if p["complete"]:
+        out.append("<p>The build is finished. Today runs on the growing and "
+                   "maintenance lists from here.</p>")
+    elif p["growing_ready"]:
+        out.append("<p>The beds are built and filled, so the plot can grow food. "
+                   "What is left is the shed and the polytunnel - worth having, and "
+                   "nothing is waiting to be sown on either.</p>")
+    else:
+        out.append("<p>Steps run in this order because each one needs the one before "
+                   "it. <strong>%d step%s left, %s of work</strong>, before the plot "
+                   "can grow anything. Everything after step %d is the shed and the "
+                   "tunnel.</p>"
+                   % (p["steps_to_growing"], "" if p["steps_to_growing"] == 1 else "s",
+                      hm(p["minutes_to_growing"]), setup_mod.GROWING_READY))
+
+    for s in p["steps"]:
+        out.append(step_card(s, sess))
+        if s["grows_food_after"]:
+            out.append('<p class=mark>Past here the plot grows food</p>')
+    out.append('<p class=stat>Written permission for the shed and the tunnel is logged '
+               'with <code>plot permission</code>; steps 11 to 16 stay blocked until it '
+               'is.</p>')
+    return "".join(out)
+
+
+def view_logbook(conn, sess, q):
+    """Everything entered, in full, newest first."""
+    kind = (q.get("kind", [None])[0] or None)
+    if kind not in logbook.KINDS:
+        kind = None
+    since = q.get("since", [None])[0] or None
+    rows = logbook.entries(conn, limit=250, kinds=[kind] if kind else None, since=since)
+    t = logbook.totals(conn, since=since)
+
+    tabs = "".join('<a class="%s" href="/logbook%s">%s</a>'
+                   % ("on" if kind == k else "", "?kind=%s" % k if k else "",
+                      (k or "everything").title())
+                   for k in (None,) + logbook.KINDS)
+    out = ['<nav>%s</nav>' % tabs]
+    if not rows:
+        return "".join(out) + ("<p>Nothing logged yet. Spending, stock movements, "
+                               "visits, finished jobs, harvests and photographs all "
+                               "land here with everything that was typed about them.</p>")
+    out.append('<p class=stat>%d entries &middot; %s to %s</p>'
+               % (t["entries"], e(t["first"]), e(t["last"])))
+    out.append('<p class=stat>&pound;%.2f over %d spends &middot; %d visits &middot; '
+               '%d jobs done &middot; %.1f kg picked</p>'
+               % (t["spend"], t["spend_items"], t["visits"], t["jobs"], t["harvest_kg"]))
+
+    day = None
+    for r in rows:
+        if r["date"] != day:
+            day = r["date"]
+            out.append('<p class=day>%s</p>' % e(day))
+        detail = " &middot; ".join(e(x) for x in (r["what"], r["line"], r["tag"]) if x)
+        thumb = ('<a href="/photo/%d" target=_blank><img src="/photo/%d" alt="" '
+                 'loading=lazy></a>' % (r["photo_id"], r["photo_id"])) if r["photo_id"] else ""
+        out.append('<div class=entry><span class="k %s">%s</span><div><b>%s</b>%s%s</div>%s</div>'
+                   % (e(r["kind"]), e(r["kind"]), e(r["title"]),
+                      '<span class=det>%s</span>' % detail if detail else "",
+                      '<p class=said>&ldquo;%s&rdquo;</p>' % e(r["notes"]) if r["notes"] else "",
+                      thumb))
+    return "".join(out)
 
 
 def visit_form(conn, sess):
@@ -287,7 +473,9 @@ def view_stock(conn, sess, q):
                    '<form method=post action="/stockmove" class=inline>'
                    '<input type=hidden name=csrf value="%s"><input type=hidden name=id value="%d">'
                    '<input name=delta size=4 style="width:70px;display:inline-block" '
-                   'placeholder="+/-"><button>Move</button></form></td></tr>'
+                   'placeholder="+/-">'
+                   '<input name=notes size=10 style="width:130px;display:inline-block" '
+                   'placeholder="what and why"><button>Move</button></form></td></tr>'
                    % (e(r["item"]), " &larr; reorder" if low else "", e(r["category"]),
                       r["qty"], e(r["unit"] or ""), r["reorder_at"], e(r["location"]),
                       e(sess["csrf"]), r["id"]))
@@ -345,15 +533,37 @@ def view_money(conn, sess, q):
                    % (e(line["budget_line"]), line["t"], line["n"]))
     out.append("</table>")
 
+    # What it was, and when, as well as how much. A budget line is a bucket for
+    # the variance report; six months later "growing_media £412" does not tell
+    # you it was four bags of peat-free for bed 3. The Log book reads all of it
+    # back, so it is worth asking for.
     out.append('<h2>Add spend</h2><form method=post action="/spend">'
                '<input type=hidden name=csrf value="%s">'
-               '<div class=row><div><label>Amount</label><input name=amount type=number '
-               'step=0.01 required></div><div><label>Vendor</label><input name=vendor></div>'
+               '<div class=row><div><label>Amount &pound;</label><input name=amount '
+               'type=number step=0.01 inputmode=decimal required></div>'
+               '<div><label>Shop</label><input name=vendor placeholder="Wilko"></div>'
+               '<div><label>Date</label><input name=date type=date value="%s"></div></div>'
+               '<div class=row><div><label>What it was</label>'
+               '<input name=item placeholder="4 bags peat-free compost"></div>'
                '<div><label>Budget line</label><select name=budget_line>%s</select></div></div>'
-               '<label>Notes</label><input name=notes><p></p><button class=go>Record</button>'
-               '</form>'
-               % (e(sess["csrf"]),
-                  "".join("<option>%s</option>" % b for b in config.BUDGET_LINES)))
+               '<label>Notes</label><input name=notes placeholder="for bed 3, ran short by one">'
+               '<p></p><button class=go>Record</button></form>'
+               % (e(sess["csrf"]), date.today().isoformat(),
+                  "".join('<option value="%s">%s</option>' % (b, b.replace("_", " "))
+                          for b in config.BUDGET_LINES)))
+
+    recent = money.recent(conn, limit=12)
+    if recent:
+        out.append("<h2>Last dozen spends</h2><table><tr><th>Date</th><th>Shop</th>"
+                   "<th>What</th><th>Line</th><th class=num>&pound;</th></tr>")
+        for r in recent:
+            out.append("<tr><td>%s</td><td>%s</td><td>%s%s</td><td>%s</td>"
+                       "<td class=num>%.2f</td></tr>"
+                       % (e(r["date"]), e(r["vendor"] or "-"), e(r["category"] or "-"),
+                          '<br><span class=why>%s</span>' % e(r["notes"]) if r["notes"] else "",
+                          e((r["budget_line"] or "").replace("_", " ")), r["amount"]))
+        out.append('</table><p class=stat>Everything, with notes and receipts, is on '
+                   '<a href="/logbook" style="color:var(--sun)">the Log book</a>.</p>')
 
     reg = money.register(conn)
     if reg:
@@ -592,8 +802,9 @@ def view_photos(conn, sess, q):
     return "".join(out)
 
 
-VIEWS = {"/": view_today, "/week": view_week, "/stock": view_stock, "/shop": view_shop,
-         "/money": view_money, "/time": view_time, "/report": view_report,
+VIEWS = {"/": view_today, "/setup": view_setup, "/week": view_week,
+         "/stock": view_stock, "/shop": view_shop, "/money": view_money,
+         "/logbook": view_logbook, "/time": view_time, "/report": view_report,
          "/photos": view_photos}
 
 
@@ -820,6 +1031,8 @@ def bootstrap(conn):
         seed.seed(conn)
         if db.get_setting(conn, "season_start", None) in (None, "2026-08-01"):
             db.set_setting(conn, "season_start", date.today().isoformat())
+    else:
+        seed.backfill(conn)          # a deploy that added a column, once
     if not conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]:
         pw = os.environ.get("ALLOTMENT_PASSWORD")
         if pw:
@@ -885,7 +1098,8 @@ def post_done(conn, sess, form, files):
                     method="entered" if mins else "allocated",
                     who=sess["role"], notes=form.get("notes"))
     keep_photo(conn, files, "job", form.get("job_id"), form.get("caption"))
-    return "/"
+    back = form.get("back") or "/"
+    return back if back in dict(NAV) else "/"
 
 
 def keep_photo(conn, files, kind, ref=None, caption=None, name="photo"):
@@ -941,8 +1155,11 @@ def post_receipt(conn, sess, form, files):
     receipt_id = cur.lastrowid
     bad = keep_photo(conn, files, "receipt", receipt_id, form.get("vendor"))
     if total and form.get("budget_line") in config.BUDGET_LINES:
+        # Tied to the receipt, so the Log book can hang the photograph of the
+        # till roll off the spend it paid for.
         money.add_spend(conn, total, form["budget_line"], vendor=form.get("vendor"),
-                        notes=form.get("notes"), when=when)
+                        notes=form.get("notes"), when=when, receipt_id=receipt_id,
+                        category=form.get("item") or None)
     return "/photos?e=" + urllib.parse.quote(bad) if bad else "/photos"
 
 
@@ -962,7 +1179,8 @@ def post_leave(conn, sess, form, files):
 
 def post_spend(conn, sess, form, files):
     money.add_spend(conn, float(form["amount"]), form["budget_line"],
-                    vendor=form.get("vendor"), notes=form.get("notes"))
+                    vendor=form.get("vendor"), notes=form.get("notes"),
+                    category=form.get("item") or None, when=form.get("date") or None)
     return "/money"
 
 
@@ -972,7 +1190,8 @@ def post_stockmove(conn, sess, form, files):
     except ValueError:
         return "/stock"
     if delta:
-        stock.move(conn, int(form["id"]), delta, "bought" if delta > 0 else "used")
+        stock.move(conn, int(form["id"]), delta, "bought" if delta > 0 else "used",
+                   notes=form.get("notes") or None)
     return "/stock"
 
 

@@ -120,11 +120,13 @@ CREATE TABLE IF NOT EXISTS spend (
 
 CREATE TABLE IF NOT EXISTS stock_moves (
   id INTEGER PRIMARY KEY, date TEXT NOT NULL, stock_id INTEGER NOT NULL REFERENCES stock(id) ON DELETE CASCADE,
-  delta REAL NOT NULL, reason TEXT NOT NULL, ref TEXT, visit_id INTEGER REFERENCES visits(id));
+  delta REAL NOT NULL, reason TEXT NOT NULL, ref TEXT, visit_id INTEGER REFERENCES visits(id),
+  unit_cost REAL, notes TEXT);
 
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY, job_key TEXT UNIQUE, title TEXT NOT NULL, category TEXT NOT NULL,
-  owner TEXT NOT NULL DEFAULT 'Either', phase TEXT, est_minutes INTEGER NOT NULL DEFAULT 30,
+  owner TEXT NOT NULL DEFAULT 'Either', phase TEXT, stream TEXT, step INTEGER,
+  est_minutes INTEGER NOT NULL DEFAULT 30,
   planned_minutes INTEGER, rule_type TEXT NOT NULL, rule_params TEXT NOT NULL DEFAULT '{}',
   active_from TEXT, active_to TEXT, depends_on TEXT, one_off INTEGER DEFAULT 0,
   zone_id TEXT REFERENCES zones(id), crop_id TEXT REFERENCES crops(id),
@@ -447,6 +449,39 @@ def is_postgres(conn):
     return isinstance(conn, PgConnection)
 
 
+# Columns added after the first database was created. CREATE TABLE IF NOT EXISTS
+# does nothing to a table that is already there, so a column added to SCHEMA
+# above never reaches an existing plot - and the hosted copy has no shell to run
+# a migration in. Each entry is (table, column, type); adding one is the whole
+# migration. SQLite has no ADD COLUMN IF NOT EXISTS, so ask first.
+ADDED_COLUMNS = [
+    ("jobs", "stream", "TEXT"),
+    ("jobs", "step", "INTEGER"),
+    ("stock_moves", "unit_cost", "REAL"),
+    ("stock_moves", "notes", "TEXT"),
+]
+
+
+def columns(conn, table):
+    if is_postgres(conn):
+        rows = conn.execute("SELECT column_name AS name FROM information_schema.columns "
+                            "WHERE table_schema=? AND table_name=?",
+                            (conn.schema, table)).fetchall()
+    else:
+        rows = conn.execute("PRAGMA table_info(%s)" % table).fetchall()
+    return {r["name"] for r in rows}
+
+
+def migrate(conn):
+    for table, column, coltype in ADDED_COLUMNS:
+        if column in columns(conn, table):
+            continue
+        if is_postgres(conn) and coltype == "REAL":
+            coltype = "double precision"
+        conn.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, coltype))
+    conn.commit()
+
+
 def init(conn):
     if is_postgres(conn):
         ensure_schema(conn)
@@ -454,6 +489,7 @@ def init(conn):
     else:
         conn.executescript(SCHEMA)
     conn.commit()
+    migrate(conn)
 
 
 def get_setting(conn, key, default=None):

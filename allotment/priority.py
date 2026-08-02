@@ -53,6 +53,7 @@ def score(conn, run, job, wx, today=None):
     return {
         "run_id": run["id"], "job_id": job["id"], "title": job["title"],
         "owner": job["owner"], "category": job["category"], "zone": job["zone_id"],
+        "stream": job["stream"] or "maintenance",
         "minutes": run["est_minutes"] or job["est_minutes"],
         "due": due.isoformat(), "shuts": shuts.isoformat() if shuts else None,
         "days_left": (shuts - today).days if shuts else None,
@@ -96,6 +97,13 @@ def _why(job, run, wx, today, shuts, overdue, blocked):
 
 
 def every_visit_jobs(conn, today=None):
+    """The standing jobs, minus any whose thing does not exist yet.
+
+    Twenty minutes of weeding on arrival is right for a plot with crops in it and
+    absurd for one that has not been cleared, where the clearing *is* the
+    weeding. blocked_reason does the filtering: these carry the same requires[]
+    as everything else, so the list starts empty and fills up as the plot does.
+    """
     today = parse(today or date.today())
     out = []
     for job in conn.execute(
@@ -106,12 +114,20 @@ def every_visit_jobs(conn, today=None):
         if blocked_reason(conn, job, None, today):
             continue                      # no point opening a tunnel that isn't built
         out.append({"title": job["title"], "owner": job["owner"],
-                    "minutes": job["est_minutes"], "job_id": job["id"]})
+                    "minutes": job["est_minutes"], "job_id": job["id"],
+                    "stream": job["stream"] or "maintenance"})
     return out
 
 
 def plan_day(conn, today=None, wx=None, limit=5):
-    """The daily view. Top 3-5, total minutes, one line each on why."""
+    """The daily view. Top 3-5, total minutes, one line each on why.
+
+    Two shapes, because the plot has two lives. Until the beds are built the day
+    is the build queue and the answer is "step N"; after that it is the running
+    year, and the jobs are split into growing - the food - and maintenance - the
+    plot the food lives on. `top` stays the flat priority order underneath both,
+    so nothing that reads it has to know about either.
+    """
     today = parse(today or date.today())
     if wx is None:
         from .weather import Weather
@@ -131,21 +147,49 @@ def plan_day(conn, today=None, wx=None, limit=5):
     live = [s for s in scored if not s["blocked"]]
     blocked = [s for s in scored if s["blocked"]]
 
+    from . import setup as setup_mod
+    build = setup_mod.progress(conn, today)
+    setup_next = [] if build["complete"] else setup_mod.actionable(conn, today)
+
+    if not build["complete"]:
+        # The build has its own numbered section above; leaving it in here too
+        # spends the day's five slots listing it twice, and drops the step
+        # numbers on the way past. Its blocked steps go the same way - "waiting
+        # for step 3" is what the guide is for.
+        live = [s for s in live if s["stream"] != "setup"]
+        blocked = [s for s in blocked if s["stream"] != "setup"]
+
     top = live[:limit]
     also = live[limit:]
     visit = every_visit_jobs(conn, today)
 
-    minutes = sum(s["minutes"] for s in top) + sum(v["minutes"] for v in visit)
+    minutes = (sum(s["minutes"] for s in top) + sum(v["minutes"] for v in visit)
+               + sum(s["minutes"] for s in setup_next))
     return {
         "date": today,
         "weather": wx.summary(today),
         "soil_workable": wx.soil_workable(today),
         "top": top, "also": also, "blocked": blocked, "every_visit": visit,
+        "streams": by_stream(top),
+        "setup": build, "setup_next": setup_next,
         "minutes": minutes,
         "inspection": next_inspection(today),
         "risks": risks(conn, wx, today),
         "hours": month_hours(conn, today),
     }
+
+
+def by_stream(scored):
+    """Split a scored list into the two day-to-day lists, order preserved.
+
+    Setup jobs are pulled out too: while the build is running they belong under
+    the numbered guide, not loose in a list of five where the numbering - the
+    only thing that says where to start - has been thrown away.
+    """
+    out = {"setup": [], "growing": [], "maintenance": []}
+    for s in scored:
+        out.setdefault(s.get("stream") or "maintenance", out["maintenance"]).append(s)
+    return out
 
 
 def month_hours(conn, today=None):

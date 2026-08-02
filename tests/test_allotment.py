@@ -13,8 +13,8 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from allotment import (auth, config, db, ledger, money, priority, rotation,
-                       rules, seed, stock, sun, weeds)
+from allotment import (auth, config, db, ledger, logbook, money, priority,
+                       rotation, rules, seed, seeddata, setup, stock, sun, weeds)
 from allotment.weather import Weather
 
 
@@ -57,6 +57,28 @@ class Base(unittest.TestCase):
 
     def job(self, key):
         return self.conn.execute("SELECT * FROM jobs WHERE job_key=?", (key,)).fetchone()
+
+    def finish(self, *keys, **kw):
+        """Mark setup steps done, so the day-to-day jobs that need them unblock.
+
+        Most tests are about the running plot, and on a running plot the beds
+        exist. Without this they are all testing the same thing - that a job
+        which needs a bed is blocked when there is no bed.
+        """
+        when = kw.get("when") or date.today()
+        for key in keys:
+            job = self.job(key)
+            self.conn.execute(
+                "INSERT INTO job_runs(job_id,due_date,status,done_date,est_minutes,seq) "
+                "VALUES(?,?,'done',?,?,0)",
+                (job["id"], str(when), str(when), job["est_minutes"]))
+        self.conn.commit()
+
+    def built(self, when=None):
+        """The whole build finished - every setup step done."""
+        keys = [r["job_key"] for r in self.conn.execute(
+            "SELECT job_key FROM jobs WHERE stream='setup' ORDER BY step").fetchall()]
+        self.finish(*keys, when=when)
 
     def weather_day(self, when, rain=0.0, tmin=10.0, tmax=18.0, gust=10.0):
         self.conn.execute(
@@ -136,6 +158,7 @@ class TestRules(Base):
 class TestClayAndWeather(Base):
     def test_clay_rule_is_a_hard_block_on_soil_jobs(self):
         today = date(2027, 4, 10)
+        self.finish("clear_plot")           # or the block is "no plot yet", not clay
         self.weather_day(today, rain=10)
         self.weather_day(today - timedelta(days=1), rain=9)
         wx = Weather(self.conn, today)
@@ -474,6 +497,170 @@ class TestAuth(Base):
 GIF = (b"GIF89a\x01\x00\x01\x00\x80\x00\x00\x00\x00\x00\xff\xff\xff!"
        b"\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02"
        b"\x02D\x01\x00;")
+
+
+class TestSetupSequence(Base):
+    """Part one: the plot has to be buildable in an order you can follow."""
+
+    def test_the_first_step_actually_exists(self):
+        """It did not. Both openers had a fixed window starting 1 August and a
+        plot taken on on the 2nd generated neither, so step one never appeared
+        and every later step read as blocked for ever."""
+        rules.ensure_runs(self.conn, date.today(), date.today())
+        for key in ("clear_plot", "permission"):
+            run = self.conn.execute(
+                "SELECT r.id FROM job_runs r JOIN jobs j ON j.id=r.job_id "
+                "WHERE j.job_key=?", (key,)).fetchone()
+            self.assertIsNotNone(run, "%s never became a job you could do" % key)
+
+    def test_a_one_off_started_mid_window_is_still_due(self):
+        job = self.job("plant_fruit")               # 1 Nov to 15 Mar
+        got = rules.due_dates(self.conn, job, "2027-01-10", "2027-02-10")
+        self.assertEqual([d for d, _ in got], [date(2027, 1, 10)])
+
+    def test_steps_are_numbered_from_one_with_no_gaps(self):
+        steps = setup.steps(self.conn)
+        self.assertEqual([s["step"] for s in steps], list(range(1, len(steps) + 1)))
+
+    def test_a_step_never_depends_on_a_later_one(self):
+        """The numbering is the guide and the dependencies are the enforcement.
+        If they disagree the guide sends you to a step that cannot be done."""
+        import json
+        by_key = {s["key"]: s["step"] for s in setup.steps(self.conn)}
+        for key, step in by_key.items():
+            deps = json.loads(self.job(key)["depends_on"] or "[]")
+            for dep in deps:
+                self.assertLess(by_key.get(dep, 0), step,
+                                "step %d (%s) waits on later step %s" % (step, key, dep))
+
+    def test_nothing_is_startable_out_of_order(self):
+        ready = [s["key"] for s in setup.steps(self.conn) if s["state"] != "waiting"]
+        self.assertEqual(sorted(ready), ["clear_plot", "permission"])
+
+    def test_progress_reaches_growing_ready_when_the_beds_are_filled(self):
+        self.assertFalse(setup.growing_ready(self.conn))
+        for key in ("permission", "clear_plot", "mark_out", "survey", "hardstanding",
+                    "compost_bays", "build_beds", "fill_beds"):
+            self.finish(key)
+        p = setup.progress(self.conn)
+        self.assertTrue(p["growing_ready"])
+        self.assertFalse(p["complete"], "the shed and tunnel are still to build")
+        self.assertEqual(p["done"], 8)
+
+
+class TestMigration(Base):
+    """A column added to SCHEMA never reaches a database that already exists,
+    and the hosted copy has no shell to run a migration in."""
+
+    def test_a_missing_column_is_added_on_the_next_start(self):
+        self.conn.execute("ALTER TABLE jobs DROP COLUMN stream")
+        self.conn.commit()
+        self.assertNotIn("stream", db.columns(self.conn, "jobs"))
+        db.init(self.conn)
+        self.assertIn("stream", db.columns(self.conn, "jobs"))
+
+    def test_an_added_column_is_filled_in_not_just_created(self):
+        """The failure this guards against is silent: the deployed copy comes
+        back with every job unclassified, so the setup guide is empty and both
+        day-to-day lists are too, and nothing says why."""
+        self.conn.execute("UPDATE jobs SET stream=NULL, step=NULL")
+        self.conn.commit()
+        self.assertEqual(setup.steps(self.conn), [])
+        self.assertTrue(seed.backfill(self.conn))
+        self.assertEqual(len(setup.steps(self.conn)), len(seeddata.BUILD))
+        self.assertEqual(seed.backfill(self.conn), 0, "should not re-run every time")
+
+    def test_migrating_twice_is_harmless(self):
+        db.migrate(self.conn)
+        db.migrate(self.conn)
+        for table, column, _ in db.ADDED_COLUMNS:
+            self.assertIn(column, db.columns(self.conn, table))
+
+
+class TestStreams(Base):
+    """Part two: the day-to-day work splits into growing and maintenance."""
+
+    def test_every_job_is_on_exactly_one_of_the_three_lists(self):
+        for job in self.conn.execute("SELECT * FROM jobs").fetchall():
+            self.assertIn(job["stream"], seeddata.STREAMS, job["title"])
+
+    def test_setup_stream_is_exactly_the_build(self):
+        keys = {r["job_key"] for r in self.conn.execute(
+            "SELECT job_key FROM jobs WHERE stream='setup'").fetchall()}
+        self.assertEqual(keys, {j.get("key") for j in seeddata.BUILD})
+
+    def test_weeding_waits_until_there_is_a_plot_to_weed(self):
+        """The complaint that started this: twenty minutes of weeding a day on a
+        plot with nothing on it, where the clearing is the weeding."""
+        titles = [j["title"] for j in priority.every_visit_jobs(self.conn)]
+        self.assertNotIn("20 minutes weeding on arrival", titles)
+        self.finish("clear_plot")
+        titles = [j["title"] for j in priority.every_visit_jobs(self.conn)]
+        self.assertIn("20 minutes weeding on arrival", titles)
+
+    def test_watering_the_beds_waits_for_the_beds(self):
+        reason = rules.blocked_reason(self.conn, self.job("water_the_beds_and_pollinator_bed"))
+        self.assertIn("Fill the beds", reason or "")
+
+    def test_the_day_is_split_into_the_two_lists(self):
+        self.built()
+        v = priority.plan_day(self.conn, date(2027, 6, 15))
+        self.assertTrue(v["setup"]["complete"])
+        for name in ("growing", "maintenance"):
+            for s in v["streams"][name]:
+                self.assertEqual(s["stream"], name)
+        self.assertEqual(sum(len(v["streams"][k]) for k in v["streams"]), len(v["top"]))
+
+    def test_the_build_is_not_listed_twice_while_it_is_running(self):
+        v = priority.plan_day(self.conn, date.today())
+        self.assertFalse(v["setup"]["complete"])
+        self.assertEqual(v["streams"]["setup"], [])
+        self.assertTrue(v["setup_next"], "the guide should still offer a next step")
+
+
+class TestLogBook(Base):
+    """The detail that was typed in has to come back out."""
+
+    def test_a_spend_keeps_the_shop_the_thing_and_the_note(self):
+        money.add_spend(self.conn, 34.50, "protection", vendor="Wilko",
+                        category="2 m butterfly netting",
+                        notes="for bed 3, ran short by a metre")
+        row = logbook.entries(self.conn, kinds=["spend"])[0]
+        self.assertIn("Wilko", row["title"])
+        self.assertIn("34.50", row["title"])
+        self.assertEqual(row["what"], "2 m butterfly netting")
+        self.assertEqual(row["line"], "protection")
+        self.assertEqual(row["notes"], "for bed 3, ran short by a metre")
+
+    def test_every_source_lands_in_one_list(self):
+        money.add_spend(self.conn, 5.0, "seeds_plants", vendor="Wilko")
+        stock.move(self.conn, stock.find(self.conn, "Radish seed")["id"], 2, "bought",
+                   notes="two packets, Kings")
+        ledger.log_visit(self.conn, 90, who="Both", mood="fine", notes="slugs")
+        self.conn.execute("INSERT INTO harvests(date,crop,kg) VALUES(?,?,?)",
+                          (date.today().isoformat(), "courgette", 1.4))
+        self.conn.commit()
+        kinds = {r["kind"] for r in logbook.entries(self.conn)}
+        self.assertEqual(kinds, {"spend", "stock", "visit", "harvest"})
+
+    def test_a_stock_move_remembers_what_it_was(self):
+        stock.move(self.conn, stock.find(self.conn, "Woodchip")["id"], 500, "bought",
+                   notes="one bulk bag, tree surgeon")
+        row = logbook.entries(self.conn, kinds=["stock"])[0]
+        self.assertEqual(row["notes"], "one bulk bag, tree surgeon")
+        self.assertIn("Woodchip", row["title"])
+
+    def test_totals_describe_the_window_they_are_over(self):
+        money.add_spend(self.conn, 10.0, "seeds_plants", when="2027-03-01")
+        money.add_spend(self.conn, 20.0, "seeds_plants", when="2027-05-01")
+        self.assertEqual(logbook.totals(self.conn)["spend"], 30.0)
+        self.assertEqual(logbook.totals(self.conn, since="2027-04-01")["spend"], 20.0)
+
+    def test_newest_first(self):
+        money.add_spend(self.conn, 1.0, "seeds_plants", when="2027-03-01")
+        money.add_spend(self.conn, 2.0, "seeds_plants", when="2027-05-01")
+        dates = [r["date"] for r in logbook.entries(self.conn, kinds=["spend"])]
+        self.assertEqual(dates, sorted(dates, reverse=True))
 
 
 def multipart_body(fields, files=(), bound="----plotTESTboundary"):
