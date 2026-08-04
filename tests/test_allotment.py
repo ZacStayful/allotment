@@ -5,6 +5,7 @@ the clay block, the neighbour-shading rule, the ledger arithmetic and login.
 """
 
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -843,6 +844,29 @@ class TestEmailRename(Base):
         auth.create_user(self.conn, "b@example.com", "password two")
         with self.assertRaises(ValueError):
             auth.rename(self.conn, "a@example.com", "b@example.com")
+
+
+class TestSchemaSplitting(unittest.TestCase):
+    """Postgres is fed one statement at a time, so the splitting is ours to get
+    right. SQLite parses the whole script itself and never sees a mistake here -
+    which is exactly why it needs its own test."""
+
+    def test_every_statement_starts_with_a_verb(self):
+        for stmt in db.split_statements(db.schema_for_postgres("plot")):
+            first = stmt.split()[0].upper()
+            self.assertIn(first, ("CREATE", "ALTER", "DROP", "INSERT", "SET"),
+                          "statement begins %r: %s" % (first, stmt[:90]))
+
+    def test_a_semicolon_in_a_comment_is_not_a_statement_boundary(self):
+        got = db.split_statements(
+            "-- one thing; and another\nCREATE TABLE a (id INTEGER);\nCREATE TABLE b (id INTEGER);")
+        self.assertEqual(got, ["CREATE TABLE a (id INTEGER)", "CREATE TABLE b (id INTEGER)"])
+
+    def test_the_schema_creates_every_table_the_code_reads(self):
+        made = set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", db.SCHEMA))
+        self.assertLessEqual({"site_access", "documents", "users", "photos"}, made)
+        self.assertEqual(len(db.split_statements(db.schema_for_postgres("plot"))),
+                         len(re.findall(r"CREATE ", db.SCHEMA)))
 
 
 class TestTenancy(Base):

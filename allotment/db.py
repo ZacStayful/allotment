@@ -225,6 +225,22 @@ def to_postgres(sql):
 
 
 DDL_PRAGMA = re.compile(r"^\s*PRAGMA[^;]*;", re.I | re.M)
+LINE_COMMENT = re.compile(r"--[^\n]*")
+
+
+def split_statements(script):
+    """One statement per semicolon - but not the ones inside a comment.
+
+    SQLite is handed the whole script and parses it itself. Postgres is handed
+    one statement at a time, so this does the splitting, and a naive split on
+    ";" cuts a `-- comment` in half: the first piece is a statement made
+    entirely of comment, which the driver rejects as an empty query, and the
+    second leaves the tail of an English sentence sitting in front of the next
+    CREATE TABLE. The error then quotes a word from a sentence about padlock
+    codes and points nowhere near the problem. Stripping the comments first
+    makes the whole class of it impossible.
+    """
+    return [s.strip() for s in LINE_COMMENT.sub("", script).split(";") if s.strip()]
 
 
 def schema_for_postgres(schema=None):
@@ -363,9 +379,8 @@ class PgConnection:
         return PgCursor(cur, returning)
 
     def executescript(self, script):
-        for statement in [s.strip() for s in script.split(";")]:
-            if statement:
-                self.execute(statement)
+        for statement in split_statements(script):
+            self.execute(statement)
         self.commit()
 
     def commit(self):
