@@ -14,7 +14,7 @@ from datetime import date, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from allotment import (auth, config, db, ledger, money, priority, rotation,
-                       rules, seed, stock, sun, weeds)
+                       rules, seed, stock, sun, tenancy, weeds)
 from allotment.weather import Weather
 
 
@@ -384,7 +384,8 @@ class TestMoney(Base):
         money.add_spend(self.conn, 300, "beds", when=date(2026, 9, 1))
         money.add_spend(self.conn, 46, "rent", when=date(2027, 1, 1))
         self.assertEqual(money.setup_total(self.conn), 300)
-        self.assertEqual(money.running_total(self.conn), 46)
+        # plus the prorated first-year subscription, which the seed records
+        self.assertEqual(money.running_total(self.conn), 46 + config.SUBSCRIPTION * 0.5)
 
     def test_unknown_budget_line_is_refused(self):
         with self.assertRaises(ValueError):
@@ -708,7 +709,7 @@ class TestServerRoutes(Base):
         self.assertEqual(served, GIF)                    # byte for byte
         self.assertEqual(headers["Content-Type"], "image/jpeg")
 
-        spend = self.conn.execute("SELECT * FROM spend").fetchall()
+        spend = self.conn.execute("SELECT * FROM spend WHERE budget_line<>'rent'").fetchall()
         self.assertEqual([(s["amount"], s["budget_line"]) for s in spend],
                          [(42.5, "beds")])
         receipt = self.conn.execute("SELECT * FROM receipts").fetchone()
@@ -754,6 +755,53 @@ class TestServerRoutes(Base):
         self.assertTrue(server._CONN_LOCK.acquire(timeout=5), "lock was stranded")
         server._CONN_LOCK.release()
 
+    def test_a_gate_code_is_recorded_and_shown_masked(self):
+        cookie = self.session_cookie()
+        csrf = self.conn.execute("SELECT csrf FROM sessions").fetchone()["csrf"]
+        body = urllib.parse.urlencode(
+            {"csrf": csrf, "key": "main_gate", "secret": "1234", "identity": ""}).encode()
+        status, _, _ = self.post("/access", body,
+                                 "application/x-www-form-urlencoded", cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(tenancy.get_access(self.conn, "main_gate")["secret"], "1234")
+        page = self.get("/access", cookie)[1]
+        self.assertIn(b"data-peek", page)               # a Show button to reveal it
+        self.assertIn('data-dots="••••"'.encode("utf-8"), page)
+        self.assertNotIn(b">1234<", page)               # dotted out until it is asked for
+
+    def test_the_login_page_can_show_what_is_being_typed(self):
+        page = self.get("/login")[1]
+        self.assertIn(b'data-peek=pw', page)
+        self.assertIn(b'id=pw name=password type=password', page)
+
+    def test_a_signed_document_goes_up_and_comes_back_whole(self):
+        cookie = self.session_cookie()
+        csrf = self.conn.execute("SELECT csrf FROM sessions").fetchone()["csrf"]
+        pdf = b"%PDF-1.4 signed by hand"
+        body, ctype = multipart_body(
+            {"csrf": csrf, "title": "Tenancy agreement, signed", "kind": "tenancy",
+             "dated": "2026-08-03", "body": ""},
+            [("file", "signed.pdf", "application/pdf", pdf)])
+        self.assertEqual(self.post("/document", body, ctype, cookie)[0], 200)
+        doc = self.conn.execute("SELECT id FROM documents WHERE doc_key=?",
+                                ("tenancy_agreement_signed",)).fetchone()
+        self.assertIsNotNone(doc)
+        status, served, headers = self.get("/doc/%d/file" % doc["id"], cookie)
+        self.assertEqual((status, served), (200, pdf))
+        self.assertEqual(headers["Content-Type"], "application/pdf")
+
+    def test_documents_are_not_served_without_a_session(self):
+        doc = self.conn.execute("SELECT id FROM documents WHERE doc_key='rules'").fetchone()
+        status, body, _ = self.get("/doc/%d" % doc["id"])   # urlopen follows the 303
+        self.assertEqual(status, 200)
+        self.assertIn(b"Sign in", body)
+        self.assertNotIn(b"Bonfires", body)
+
+    def test_a_document_that_does_not_exist_is_a_404_not_a_crash(self):
+        cookie = self.session_cookie()
+        self.assertEqual(self.get("/doc/9999", cookie)[0], 404)
+        self.assertEqual(self.get("/doc/not-a-number/file", cookie)[0], 404)
+
     def test_robots_and_health_need_no_login(self):
         self.assertEqual(self.get("/robots.txt")[0], 200)
         self.assertEqual(self.get("/healthz")[0], 200)
@@ -795,6 +843,117 @@ class TestEmailRename(Base):
         auth.create_user(self.conn, "b@example.com", "password two")
         with self.assertRaises(ValueError):
             auth.rename(self.conn, "a@example.com", "b@example.com")
+
+
+class TestTenancy(Base):
+    """The paperwork: the codes, the documents, and the one rule about both -
+    a value goes in the database, never in a public repository."""
+
+    def test_no_code_or_password_ships_in_the_source(self):
+        import glob
+        import re as _re
+        seeded = self.conn.execute("SELECT secret, identity FROM site_access").fetchall()
+        self.assertEqual([r["secret"] for r in seeded], [None] * len(seeded))
+        self.assertEqual([r["identity"] for r in seeded], [None] * len(seeded))
+        # and nothing that looks like a code is sitting in the modules either
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for path in glob.glob(os.path.join(root, "allotment", "*.py")):
+            with open(path, encoding="utf-8") as fh:
+                for n, line in enumerate(fh, 1):
+                    if _re.search(r"\b(31038|7196|5090074)\b", line):
+                        self.fail("%s:%d looks like a real code" % (path, n))
+
+    def test_a_code_goes_in_and_comes_back(self):
+        tenancy.set_access(self.conn, "main_gate", secret="1234")
+        row = tenancy.get_access(self.conn, "main_gate")
+        self.assertEqual(row["secret"], "1234")
+        self.assertTrue(row["updated"])
+        self.assertNotIn("1234", tenancy.mask(row["secret"]))
+
+    def test_changing_the_code_keeps_the_note_beside_it(self):
+        """The gate code changes; the reminder to lock the gate does not."""
+        before = tenancy.get_access(self.conn, "main_gate")["notes"]
+        tenancy.set_access(self.conn, "main_gate", secret="1234")
+        tenancy.set_access(self.conn, "main_gate", secret="5678")
+        row = tenancy.get_access(self.conn, "main_gate")
+        self.assertEqual((row["secret"], row["notes"]), ("5678", before))
+
+    def test_an_empty_box_keeps_the_code_rather_than_wiping_it(self):
+        """The form that sets a new gate code is the form that shows the old one."""
+        tenancy.set_access(self.conn, "main_gate", secret="1234", identity="padlock")
+        tenancy.set_access(self.conn, "main_gate", secret="", identity="")
+        row = tenancy.get_access(self.conn, "main_gate")
+        self.assertEqual((row["secret"], row["identity"]), ("1234", "padlock"))
+        tenancy.clear_access(self.conn, "main_gate")
+        self.assertIsNone(tenancy.get_access(self.conn, "main_gate")["secret"])
+
+    def test_two_documents_of_the_same_name_are_both_kept(self):
+        first = tenancy.add_document(self.conn, "Permission letter", body="the shed")
+        second = tenancy.add_document(self.conn, "Permission letter", body="the tunnel")
+        self.assertNotEqual(first, second)
+        self.assertEqual(tenancy.get_document(self.conn, first)["body"], "the shed")
+
+    def test_an_unknown_entry_is_refused_rather_than_created(self):
+        with self.assertRaises(KeyError):
+            tenancy.set_access(self.conn, "back_door", secret="1234")
+
+    def test_re_seeding_never_overwrites_a_recorded_code(self):
+        tenancy.set_access(self.conn, "car_park", secret="4321", notes="mine")
+        seed.seed(self.conn)
+        row = tenancy.get_access(self.conn, "car_park")
+        self.assertEqual((row["secret"], row["notes"]), ("4321", "mine"))
+
+    def test_the_three_documents_are_readable_at_the_plot(self):
+        keys = {d["doc_key"] for d in
+                self.conn.execute("SELECT doc_key FROM documents").fetchall()}
+        self.assertEqual(keys, {"tenancy_agreement", "rules", "constitution"})
+        doc = tenancy.get_document(self.conn, "rules")
+        self.assertIn("organic", doc["body"].lower())
+
+    def test_search_finds_the_clause_and_says_where(self):
+        hits = tenancy.search(self.conn, "bonfire")
+        self.assertTrue(hits)
+        self.assertTrue(all("bonfire" in h["text"].lower() for h in hits))
+        self.assertIn("Rules of the Association", [h["title"] for h in hits])
+
+    def test_search_ignores_a_term_too_short_to_mean_anything(self):
+        self.assertEqual(tenancy.search(self.conn, "of"), [])
+
+    def test_a_word_file_becomes_text_without_a_library(self):
+        docx = docx_bytes("Plot I\nThe tenant must keep the whole of the Plot tidy.")
+        doc_id = tenancy.add_document(self.conn, "Signed copy", data=docx,
+                                      mime=tenancy.DOCX, filename="signed.docx")
+        doc = tenancy.get_document(self.conn, doc_id)
+        self.assertIn("keep the whole of the Plot tidy", doc["body"])
+        self.assertEqual(doc["bytes"], docx)          # the original, byte for byte
+
+    def test_it_refuses_a_file_it_cannot_keep(self):
+        with self.assertRaises(ValueError):
+            tenancy.add_document(self.conn, "Virus", data=b"MZ\x90\x00",
+                                 mime="application/x-msdownload")
+        with self.assertRaises(ValueError):
+            tenancy.add_document(self.conn, "Nothing at all")
+
+    def test_the_part_year_subscription_is_on_the_ledger(self):
+        """August is the third quarter, so half the year's rent - and seeding
+        twice must not charge it twice."""
+        seed.seed(self.conn)
+        rent = self.conn.execute("SELECT * FROM spend WHERE budget_line='rent'").fetchall()
+        self.assertEqual(len(rent), 1)
+        self.assertAlmostEqual(rent[0]["amount"], config.SUBSCRIPTION * 0.5, places=2)
+
+
+def docx_bytes(text):
+    """The smallest thing that is genuinely a .docx: a zip with the one part
+    the reader looks for."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    body = "".join("<w:p><w:r><w:t>%s</w:t></w:r></w:p>" % line for line in text.split("\n"))
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml",
+                    '<?xml version="1.0"?><w:document><w:body>%s</w:body></w:document>' % body)
+    return buf.getvalue()
 
 
 class TestSeed(Base):

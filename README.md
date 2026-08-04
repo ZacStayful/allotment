@@ -85,6 +85,9 @@ public.
 | `plot rotation` | next year's bed assignment, validated |
 | `plot weather` | refresh the cache and show the derived values |
 | `plot permission` | log written permission — unblocks all structure jobs |
+| `plot access` | gate codes and logins, masked; `--show` prints them |
+| `plot access main_gate 12345` | record one |
+| `plot docs --find bonfire` | search the tenancy documents |
 | `plot ban` / `plot ban --off` | hosepipe ban on or off |
 | `plot serve` | the web view |
 | `plot user --rename a@b.c --to d@e.f` | change a login address |
@@ -141,6 +144,48 @@ These come from the tenancy documents and are not advisory.
   60 kg or 0.1 m³ a load — and puts the time on the job rather than in a
   footnote. A tonne of hardcore is 17 trips.
 
+## The paperwork
+
+Two tabs for the things that arrived with the plot rather than growing on it.
+
+**Access** holds the main gate code, the car park code, the National Allotment
+Society login that comes with the tenancy, the plot holders' Facebook group and
+the subscription bank details. Everything is dotted out until you press Show,
+because an allotment screen is read over a shoulder more often than a desk one.
+
+**None of those values are in this repository, and none ever should be.** It is
+public. Section 6.2 of the Constitution also forbids passing padlock codes on
+without the Committee's written permission, so a gate code committed here is a
+published gate code and a breach of the tenancy in the same line. The seed
+carries the labels and the notes; the values go in through the Access page or
+`plot access` and live in the database, which is private and behind the login. A
+test walks `allotment/*.py` looking for them, so a slip fails the build rather
+than reaching GitHub.
+
+```bash
+./plot access                        # masked
+./plot access --show                 # in full
+./plot access main_gate 12345        # record the code
+./plot access nsalg SECRET --identity s00000
+```
+
+**Docs** holds the Tenancy Agreement, the Rules of the Association and the
+Constitution as searchable text — `plot docs --find bonfire` answers "what did it
+say about bonfires" while you are standing at the plot. Anything else can be
+added to it: a signed copy, a permission letter, a photograph of a notice. A
+Word file is read into text on the way in, using `zipfile` and a regular
+expression rather than a dependency; a PDF is kept as it is and offered for
+download. The signed tenancy agreement belongs here rather than in the
+repository — it has a signature and an address on it.
+
+Under the documents is the list of what they commit you to, clause by clause,
+with the seven the jobs engine already enforces marked as such. The rest are on
+you, which is the point of writing them down.
+
+The first year's subscription is prorated by quarter — take a plot on in August
+and half the year's £46 is due — so `plot init` puts that payment on the ledger.
+Without it the first year looks cheaper than it was.
+
 ## The map
 
 `plot serve`, then open `/map`. Seven layers over one footprint: layout, sun and
@@ -193,11 +238,13 @@ allotment/
   sun.py         solar geometry, sun hours, neighbour shading
   weeds.py       weed pressure, corrected by observation
   rotation.py    four-year cycle and validation
+  tenancy.py     gate codes, the documents, and what they commit you to
+  docs/          the tenancy agreement, rules and constitution, as text
   auth.py        PBKDF2, sessions, CSRF, lockout
   server.py      the web view
   cli.py         `plot`
 api/index.py     the Vercel entry point
-tests/           67 tests, run against SQLite and Postgres
+tests/           103 tests, run against SQLite and Postgres
 ```
 
 ## Deployment
@@ -286,7 +333,9 @@ The role wants `USAGE` and `CREATE` on its own schema, and nothing outside it.
 
 | | |
 |---|---|
-| `/` `/week` `/map` `/stock` `/shop` `/money` `/time` `/report` | the app, behind the login |
+| `/` `/week` `/map` `/photos` `/stock` `/shop` `/money` `/time` `/report` | the app, behind the login |
+| `/access` `/docs` | the gate codes and the tenancy paperwork |
+| `/doc/<id>` `/doc/<id>/file` | one document, read or downloaded |
 | `/login` `/logout` | session in and out |
 | `/favicon.ico` `/robots.txt` `/healthz` | served without a login |
 | `/static/<file>` | files from `allotment/static`, and nothing above it |
@@ -302,7 +351,7 @@ python3 -m unittest discover -s tests -v                    # SQLite
 ALLOTMENT_TEST_PG=postgresql://... python3 -m unittest discover -s tests   # Postgres
 ```
 
-The same 67 tests run against both backends. Each Postgres run builds and drops
+The same 103 tests run against both backends. Each Postgres run builds and drops
 its own schema, so it will not touch anything else in the database.
 
 ## Build order

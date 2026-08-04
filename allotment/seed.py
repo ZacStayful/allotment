@@ -3,7 +3,7 @@
 import json
 import re
 
-from . import db, seeddata
+from . import config, db, seeddata, tenancy
 
 
 def slug(s):
@@ -82,10 +82,43 @@ def seed(conn):
         conn.execute("INSERT INTO stock(item,category,unit,qty,reorder_at,location,unit_cost,"
                      "expires,organic_certified,bulk_kg,bulk_m3) VALUES(?,?,?,?,?,?,?,?,?,?,?)", s)
 
+    tenancy.seed(conn)
+    first_rent(conn)
+
     conn.commit()
     return {
         "zones": conn.execute("SELECT COUNT(*) c FROM zones").fetchone()["c"],
         "crops": conn.execute("SELECT COUNT(*) c FROM crops").fetchone()["c"],
         "jobs": conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"],
         "stock": conn.execute("SELECT COUNT(*) c FROM stock").fetchone()["c"],
+        "documents": conn.execute("SELECT COUNT(*) c FROM documents").fetchone()["c"],
     }
+
+
+def first_rent(conn):
+    """The part-year subscription, once.
+
+    Taking a plot on in August is 50% of the year's rent under section 2 of the
+    tenancy agreement - the plot is not free until January, and a ledger that
+    starts at zero would say the first year cost less than it did. Guarded on the
+    date and the amount, because `seed` runs on every cold start."""
+    when = db.get_setting(conn, "tenancy_start", "2026-08-01")
+    paid = round(config.SUBSCRIPTION * PRORATION[(parse_month(when) - 1) // 3], 2)
+    if conn.execute("SELECT 1 FROM spend WHERE date=? AND budget_line='rent'",
+                    (when,)).fetchone():
+        return
+    conn.execute("INSERT INTO spend(date,vendor,category,amount,budget_line,setup,notes) "
+                 "VALUES(?,?,?,?,?,?,?)",
+                 (when, config.SITE_NAME, "rent", paid, "rent", 0,
+                  "Subscription for the remainder of the first year, prorated"))
+    conn.commit()
+
+
+PRORATION = (1.0, 0.75, 0.5, 0.25)      # tenancy agreement 2, by quarter signed
+
+
+def parse_month(iso):
+    try:
+        return int(str(iso)[5:7])
+    except ValueError:
+        return 1

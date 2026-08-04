@@ -32,6 +32,7 @@ ID_TABLES = {
     "users", "zones", "crops", "jobs", "job_runs", "visits", "harvests",
     "plantings", "spend", "stock", "stock_moves", "receipts", "receipt_lines",
     "assets", "asset_events", "weed_observations", "trouble_pins", "photos",
+    "site_access", "documents",
 }
 
 SCHEMA = """
@@ -164,6 +165,25 @@ CREATE TABLE IF NOT EXISTS photos (
   id INTEGER PRIMARY KEY, taken TEXT NOT NULL, subject TEXT NOT NULL,
   caption TEXT, mime TEXT NOT NULL, bytes BLOB NOT NULL, size INTEGER NOT NULL,
   width INTEGER, height INTEGER);
+
+-- How you get in, and what you sign in with. The values live here and nowhere
+-- else: this repository is public, and the Constitution forbids passing padlock
+-- codes on without the Committee's written permission, so a code committed to
+-- source is both a published code and a breach of the tenancy. `plot access`
+-- and the Access page put them in; the seed carries the labels only.
+CREATE TABLE IF NOT EXISTS site_access (
+  id INTEGER PRIMARY KEY, key TEXT UNIQUE NOT NULL, label TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'code', identity TEXT, secret TEXT, url TEXT,
+  notes TEXT, pos INTEGER NOT NULL DEFAULT 0, updated TEXT);
+
+-- The paperwork of the tenancy. `body` is the readable text; `bytes` is the
+-- original file where there is one, so a signed copy can be kept exactly as it
+-- was signed. Like photos, in the database rather than on disk, because the
+-- hosted copy has no disk that survives a request.
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY, doc_key TEXT UNIQUE NOT NULL, title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'tenancy', dated TEXT, summary TEXT, body TEXT,
+  filename TEXT, mime TEXT, bytes BLOB, size INTEGER, added TEXT NOT NULL);
 
 CREATE INDEX IF NOT EXISTS idx_photos_subject ON photos(subject, taken);
 CREATE INDEX IF NOT EXISTS idx_runs_due ON job_runs(due_date, status);
@@ -480,4 +500,6 @@ DEFAULT_SETTINGS = {
     "season_start": "2026-08-01",       # year 1 of the plot
     "person_a": "Grower",
     "person_b": "Site",
+    "plot_ref": "I",                    # the letter on the tenancy agreement
+    "tenancy_start": "2026-08-01",      # the date the plot became ours
 }

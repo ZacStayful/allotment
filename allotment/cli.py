@@ -7,7 +7,7 @@ import sys
 from datetime import date, timedelta
 
 from . import (auth, config, db, ledger, money, planner, priority, rotation,
-               rules, seed, stock, sun, weather, weeds)
+               rules, seed, stock, sun, tenancy, weather, weeds)
 from .rules import parse
 
 BOLD, DIM, OFF = "\033[1m", "\033[2m", "\033[0m"
@@ -86,8 +86,9 @@ def cmd_init(args):
             if generated:
                 print("Generated password: %s" % pw)
                 print("Write it down - it is not stored anywhere in plain text.")
-    print("Seeded: %(zones)d zones, %(crops)d crops, %(jobs)d jobs, %(stock)d stock lines"
-          % counts)
+    print("Seeded: %(zones)d zones, %(crops)d crops, %(jobs)d jobs, %(stock)d stock "
+          "lines, %(documents)d documents" % counts)
+    print("Gate codes and logins are not seeded - see `plot access`.")
     today = date.today()
     wx, err = refresh(conn, today, args.offline)
     if err:
@@ -453,6 +454,66 @@ def cmd_ban(args):
              config.BAN_MINUTES if not args.off else config.HOSE_MINUTES))
 
 
+def cmd_access(args):
+    """The codes and logins, out of the database. Masked unless asked.
+
+    `plot access main_gate 12345` puts one in. It goes to the database and
+    nowhere else - never to a file in the repository, which is public, and which
+    the Constitution's rule on passing padlock codes on makes a breach of the
+    tenancy as well as a bad idea.
+    """
+    conn = open_db(args)
+    if args.key and args.clear:
+        tenancy.clear_access(conn, args.key)
+        print("Cleared %s. The label and the note stay." % args.key)
+        return
+    if args.key and (args.value or args.identity or args.notes):
+        try:
+            row = tenancy.set_access(conn, args.key, secret=args.value,
+                                     identity=args.identity, notes=args.notes)
+        except KeyError as bad:
+            sys.exit(str(bad))
+        print("%s: %s" % (row["label"], tenancy.mask(row["secret"])))
+        return
+    rows = tenancy.all_access(conn)
+    if args.key:
+        rows = [r for r in rows if r["key"] == args.key]
+        if not rows:
+            sys.exit("No such entry: %s" % args.key)
+    for r in rows:
+        value = r["secret"] if args.show else tenancy.mask(r["secret"])
+        print("%-14s %-28s %s" % (r["key"], r["label"], value))
+        if r["identity"]:
+            print("               %s" % r["identity"])
+        if args.show and r["notes"]:
+            print(_c("               %s" % r["notes"], DIM))
+    if not args.show:
+        print(_c("\n--show prints them in full.", DIM))
+
+
+def cmd_docs(args):
+    conn = open_db(args)
+    if args.find:
+        hits = tenancy.search(conn, args.find, limit=args.limit)
+        if not hits:
+            print("Nothing matches %r." % args.find)
+        for h in hits:
+            print("%-22s line %-4d %s" % (h["title"], h["line"], h["text"][:90]))
+        return
+    if args.read:
+        doc = tenancy.get_document(conn, args.read)
+        if doc is None:
+            sys.exit("No such document: %s" % args.read)
+        print(doc["body"] or "No text held for this one - %s only."
+              % (doc["mime"] or "the original file"))
+        return
+    for d in tenancy.all_documents(conn):
+        print("%-4s %-26s %-14s %s" % (d["id"], d["title"], d["kind"], d["dated"] or ""))
+        if d["summary"]:
+            print(_c("     %s" % d["summary"], DIM))
+    print(_c("\nplot docs --read tenancy_agreement, or --find bonfire.", DIM))
+
+
 def cmd_passwd(args):
     conn = open_db(args)
     pw, generated = read_password(args.password)
@@ -593,6 +654,21 @@ def build_parser():
     s = sub.add_parser("ban", help="hosepipe ban on or off")
     s.add_argument("--off", action="store_true")
     s.set_defaults(fn=cmd_ban)
+
+    s = sub.add_parser("access", help="gate codes and logins, kept in the database")
+    s.add_argument("key", nargs="?", help="main_gate, car_park, nsalg, facebook, "
+                                          "committee, subscription")
+    s.add_argument("value", nargs="?", help="the code or password to record")
+    s.add_argument("--identity", help="membership number, account name, email")
+    s.add_argument("--notes")
+    s.add_argument("--show", action="store_true", help="print them in full")
+    s.add_argument("--clear", action="store_true", help="forget the recorded value")
+    s.set_defaults(fn=cmd_access)
+
+    s = sub.add_parser("docs", help="the tenancy documents")
+    s.add_argument("--read", metavar="KEY_OR_ID"), s.add_argument("--find", metavar="TEXT")
+    s.add_argument("--limit", type=int, default=20)
+    s.set_defaults(fn=cmd_docs)
 
     s = sub.add_parser("passwd")
     s.add_argument("--email"), s.add_argument("--password")

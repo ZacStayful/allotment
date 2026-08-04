@@ -13,7 +13,7 @@ from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import (auth, config, db, ledger, money, multipart, photos, planner,
-               priority, rotation, seed, stock, sun, weeds)
+               priority, rotation, seed, stock, sun, tenancy, weeds)
 from .cli import hm, refresh
 from .rules import parse
 
@@ -37,7 +37,8 @@ def close_quietly(conn):
 
 NAV = [("/", "Today"), ("/week", "Week"), ("/map", "Map"), ("/photos", "Photos"),
        ("/stock", "Stock"), ("/shop", "Shop"), ("/money", "Money"),
-       ("/time", "Time"), ("/report", "Report")]
+       ("/time", "Time"), ("/report", "Report"), ("/access", "Access"),
+       ("/docs", "Docs")]
 
 
 def e(s):
@@ -102,6 +103,19 @@ padding:8px;margin-bottom:8px}
 .shot img{width:76px;height:76px;object-fit:cover;flex:0 0 auto}
 .shot h3{margin:0 0 2px;font-size:15px;font-weight:800}
 .shot>div{flex:1;min-width:0}
+/* Access and documents */
+.code{font-family:var(--data);font-size:26px;font-weight:800;letter-spacing:.16em;
+color:var(--sun);word-break:break-all}
+.code.hid{color:var(--dim);letter-spacing:.1em}
+.card{border:1px solid var(--rule);border-left:3px solid var(--green);padding:11px 13px;
+margin-bottom:9px}
+.card h3{margin:0 0 6px;font-size:16px;font-weight:800}
+.peek{display:flex;gap:8px;align-items:center;margin-top:6px}
+.peek button{padding:5px 10px;font-size:12px;font-family:var(--data);letter-spacing:.08em;
+text-transform:uppercase}
+.doc p{max-width:64ch}
+.doc h3{font-size:15px;font-weight:800;margin:20px 0 6px}
+mark{background:var(--sun);color:#111917}
 /* One job, one form. Done is the whole width; the rest hides behind a summary. */
 .jobhead{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
 .acts{margin-top:10px}
@@ -155,9 +169,38 @@ def page(title, body, sess=None, path="/"):
             "<title>%s</title><style>%s</style></head><body><div class=wrap>"
             "<header><div><p class=sub>%s</p><h1>%s</h1></div></header>%s%s"
             "<p class=foot>Albert Village &middot; 11.4 x 11.4 m &middot; organic only "
-            "&middot; no vehicle access</p></div><script>%s</script></body></html>"
+            "&middot; no vehicle access</p></div><script>%s%s</script></body></html>"
             % (e(title), CSS, e(config.SITE_NAME), e(title), nav, body,
-               SHRINK_JS if sess else ""))
+               PEEK_JS, SHRINK_JS if sess else ""))
+
+
+# Typing a password you cannot see, on a phone, in the rain, is how you get
+# locked out of your own plot record. Every password field and every stored code
+# has a Show beside it. Nothing is revealed until it is asked for, so a screen
+# held up in a shared shed still shows dots.
+PEEK_JS = """
+document.addEventListener('click', function (ev) {
+  var b = ev.target;
+  while (b && b !== document && !(b.getAttribute && b.getAttribute('data-peek'))) b = b.parentNode;
+  if (!b || b === document) return;
+  ev.preventDefault();
+  var el = document.getElementById(b.getAttribute('data-peek'));
+  if (!el) return;
+  var shown;
+  if (el.tagName === 'INPUT') {
+    shown = el.type === 'text';
+    el.type = shown ? 'password' : 'text';
+    el.focus();
+    try { el.setSelectionRange(el.value.length, el.value.length); } catch (err) {}
+  } else {
+    shown = el.dataset.shown === '1';
+    el.textContent = shown ? el.dataset.dots : el.dataset.secret;
+    el.dataset.shown = shown ? '0' : '1';
+    el.className = shown ? 'code hid' : 'code';
+  }
+  b.textContent = shown ? 'Show' : 'Hide';
+});
+"""
 
 
 # --------------------------------------------------------------------- views
@@ -592,9 +635,212 @@ def view_photos(conn, sess, q):
     return "".join(out)
 
 
+def secret_line(row):
+    """The value, dotted out, with a Show beside it.
+
+    Shown rather than hidden behind a click every time because the reason you
+    opened this page is that you are standing at the gate; masked by default
+    because plenty of allotment screens are read over a shoulder."""
+    ident = "s%s" % row["key"]
+    if not row["secret"]:
+        return '<p class="code hid">not recorded yet</p>'
+    dots = tenancy.mask(row["secret"])
+    return ('<p class="code hid" id="%s" data-secret="%s" data-dots="%s" data-shown="0">%s</p>'
+            '<div class=peek><button type=button data-peek="%s">Show</button>'
+            '<span class=stat>%s</span></div>'
+            % (ident, e(row["secret"]), e(dots), e(dots), ident,
+               ("updated %s" % e(row["updated"][:10])) if row["updated"] else ""))
+
+
+ACCESS_FIELDS = {
+    "code": ("Code", "The number on the padlock"),
+    "login": ("Password", "Membership number goes in the box above"),
+    "group": ("Anything worth remembering", ""),
+    "contact": ("Anything worth remembering", ""),
+    "payment": ("Account number", "Sort code and account name go above"),
+}
+
+
+def view_access(conn, sess, q):
+    """Everything that gets you in, and what the plot costs to keep.
+
+    Codes and passwords are held here and nowhere else - not in the repository,
+    which is public, and which the Constitution's rule against passing on padlock
+    codes makes an outright breach as well as a bad idea."""
+    plot = db.get_setting(conn, "plot_ref", "I")
+    started = db.get_setting(conn, "tenancy_start", "2026-08-01")
+    out = ['<p class=stat>Plot %s &middot; ours from %s &middot; £%.2f a year, due 1 January</p>'
+           % (e(plot), e(parse(started).strftime("%d %B %Y")), config.SUBSCRIPTION)]
+    if q.get("e"):
+        out.append('<div class=err>%s</div>' % e(q["e"][0]))
+    gaps = tenancy.missing(conn)
+    if gaps:
+        out.append('<div class=risk><b>Nothing recorded yet</b>%s. Fill it in below and '
+                   'it stays in the database, which is private - never in the code, '
+                   'which is not.</div>' % e(", ".join(gaps)))
+
+    for row in tenancy.all_access(conn):
+        label, hint = ACCESS_FIELDS.get(row["kind"], ("Value", ""))
+        ident = "f%s" % row["key"]
+        out.append('<div class=card><h3>%s</h3>' % e(row["label"]))
+        if row["identity"]:
+            out.append('<p class=stat>%s</p>' % e(row["identity"]))
+        out.append(secret_line(row))
+        if row["notes"]:
+            out.append("<p>%s</p>" % e(row["notes"]))
+        if row["url"]:
+            out.append('<p><a href="%s" target=_blank rel=noreferrer '
+                       'style="color:var(--sun)">%s</a></p>' % (e(row["url"]), e(row["url"])))
+        out.append('<details><summary>Change it</summary>'
+                   '<form method=post action="/access">'
+                   '<input type=hidden name=csrf value="%s">'
+                   '<input type=hidden name=key value="%s">'
+                   '<label>Name, number or account it is under</label>'
+                   '<input name=identity value="%s" autocomplete=off>'
+                   '<label for="%s">%s</label>'
+                   '<input id="%s" name=secret type=password autocomplete=off '
+                   'placeholder="%s">'
+                   '<div class=peek><button type=button data-peek="%s">Show</button>'
+                   '<span class=stat>%s</span></div>'
+                   '<label>Note</label><input name=notes value="%s">'
+                   '<p></p><button class=go>Save</button></form></details></div>'
+                   % (e(sess["csrf"]), e(row["key"]), e(row["identity"] or ""), ident,
+                      e(label), ident, "leave empty to keep the current one", ident,
+                      e(hint), e(row["notes"] or "")))
+
+    out.append('<h2>What the plot costs</h2><table>'
+               '<tr><td>Annual subscription, due 1 January</td>'
+               '<td class=num>£%.2f</td></tr>'
+               '<tr><td>Part year from %s</td><td class=num>£%.2f</td></tr>'
+               '<tr><td>In arrears after</td><td class=num>31 January</td></tr></table>'
+               '<p>Renewals go out in early December. Nothing is refunded once the '
+               'agreement is signed.</p>'
+               % (config.SUBSCRIPTION, e(parse(started).strftime("%B %Y")),
+                  round(config.SUBSCRIPTION * 0.5, 2)))
+    return "".join(out)
+
+
+def view_docs(conn, sess, q):
+    """The tenancy agreement, the rules and the constitution, readable at the
+    plot, plus whatever else has been signed or received."""
+    out = []
+    if q.get("e"):
+        out.append('<div class=err>%s</div>' % e(q["e"][0]))
+    term = (q.get("q", [""])[0] or "").strip()
+    out.append('<form method=get action="/docs"><label>Search the documents</label>'
+               '<div class=row><div><input name=q value="%s" placeholder="bonfire">'
+               '</div><div style="flex:0 0 auto"><p></p><button class=go>Find it</button>'
+               '</div></div></form>' % e(term))
+    if term:
+        hits = tenancy.search(conn, term)
+        out.append("<h2>%d %s for &ldquo;%s&rdquo;</h2>"
+                   % (len(hits), "line" if len(hits) == 1 else "lines", e(term)))
+        if len(term) < 3:
+            out.append("<p>Three letters or more.</p>")
+        for h in hits:
+            out.append('<div class=card><h3>%s</h3><p>%s</p>'
+                       '<p class=stat><a href="/doc/%d" style="color:var(--sun)">'
+                       'Read it in place</a></p></div>'
+                       % (e(h["title"]), highlight(h["text"], term), h["id"]))
+
+    out.append("<h2>Documents</h2>")
+    for d in tenancy.all_documents(conn):
+        bits = [d["kind"], d["dated"] or ""]
+        if d["size"]:
+            bits.append("%s %.0f KB" % (tenancy.FILE_TYPES.get(d["mime"], "file").lstrip("."),
+                                        d["size"] / 1024.0))
+        out.append('<div class=card><h3><a href="/doc/%d" style="color:var(--bone)">%s</a>'
+                   '</h3><span class=why>%s</span>%s'
+                   '<div class=peek><a class=btn href="/doc/%d">Read</a>%s'
+                   '<form method=post action="/document-delete" class=inline>'
+                   '<input type=hidden name=csrf value="%s"><input type=hidden name=id '
+                   'value="%d"><button onclick="return confirm(\'Delete %s?\')">Delete'
+                   '</button></form></div></div>'
+                   % (d["id"], e(d["title"]),
+                      " &middot; ".join(e(b) for b in bits if b),
+                      "<p>%s</p>" % e(d["summary"]) if d["summary"] else "",
+                      d["id"],
+                      ('<a class=btn href="/doc/%d/file">Download</a>' % d["id"])
+                      if d["size"] else "",
+                      e(sess["csrf"]), d["id"], e(d["title"])))
+
+    out.append("<h2>What these commit you to</h2>"
+               "<p>Fifteen clauses worth remembering, and where each one lives. The "
+               "seven marked <em>encoded</em> are enforced by the jobs engine; the rest "
+               "are on you.</p>")
+    for title, where, detail, encoded in tenancy.OBLIGATIONS:
+        out.append('<div class=card><h3>%s</h3><span class=why>%s%s</span>'
+                   '<p>%s</p></div>'
+                   % (e(title), e(where), " &middot; encoded" if encoded else "",
+                      e(detail)))
+
+    out.append('<h2>Add a document</h2>'
+               '<p>The signed copy of your own tenancy agreement belongs here, not in '
+               'the repository: it has a signature and an address on it, and this '
+               'database is private.</p>'
+               '<form method=post action="/document" enctype="multipart/form-data">'
+               '<input type=hidden name=csrf value="%s">'
+               '<div class=row><div><label>Title</label>'
+               '<input name=title placeholder="Tenancy agreement, signed" required></div>'
+               '<div><label>Kind</label><select name=kind>%s</select></div></div>'
+               '<div class=row><div><label>Dated</label>'
+               '<input name=dated type=date value="%s"></div></div>'
+               '<label for=docf>File &mdash; PDF, Word, text or a photograph</label>'
+               '<input id=docf type=file name=file '
+               'accept=".pdf,.docx,.doc,.txt,image/*">'
+               '<label>Or paste the text</label><textarea name=body rows=4></textarea>'
+               '<p></p><button class="go big">Keep it</button></form>'
+               % (e(sess["csrf"]),
+                  "".join("<option>%s</option>" % k for k in tenancy.KINDS),
+                  date.today().isoformat()))
+    return "".join(out)
+
+
+def highlight(text, term):
+    """The searched phrase, marked, with everything round it escaped first."""
+    low, needle, out, i = text.lower(), term.lower(), [], 0
+    while True:
+        at = low.find(needle, i)
+        if at < 0:
+            out.append(e(text[i:]))
+            return "".join(out)
+        out.append(e(text[i:at]))
+        out.append("<mark>%s</mark>" % e(text[at:at + len(term)]))
+        i = at + len(term)
+
+
+def view_document(conn, sess, doc_id):
+    """One document, read as text. A phone in a shed has no Word on it."""
+    doc = tenancy.get_document(conn, doc_id)
+    if doc is None:
+        return None, None
+    out = ['<p class=stat>%s &middot; %s</p>'
+           % (e(doc["kind"]), e(doc["dated"] or doc["added"][:10]))]
+    if doc["size"]:
+        out.append('<p><a class=btn href="/doc/%d/file">Download the original</a></p>'
+                   % doc["id"])
+    if not doc["body"]:
+        out.append("<p>No text was extracted from this one - the original is the only "
+                   "copy. PDFs are kept as they are; a Word file is read into text "
+                   "when it goes in.</p>")
+    out.append('<div class=doc>')
+    for para in (doc["body"] or "").split("\n"):
+        para = para.strip()
+        if not para:
+            continue
+        # A short line with no full stop is a heading in every one of these
+        if len(para) < 60 and not para.endswith(".") and not para.endswith(":"):
+            out.append("<h3>%s</h3>" % e(para))
+        else:
+            out.append("<p>%s</p>" % e(para))
+    out.append('</div><p><a href="/docs" style="color:var(--sun)">Back to the '
+               'documents</a></p>')
+    return doc["title"], "".join(out)
+
+
 VIEWS = {"/": view_today, "/week": view_week, "/stock": view_stock, "/shop": view_shop,
          "/money": view_money, "/time": view_time, "/report": view_report,
-         "/photos": view_photos}
+         "/photos": view_photos, "/access": view_access, "/docs": view_docs}
 
 
 # ------------------------------------------------------------------- handler
@@ -654,6 +900,25 @@ class Handler(BaseHTTPRequestHandler):
                           headers=[("Cache-Control", "private, max-age=86400"),
                                    ("Content-Disposition", 'inline; filename="photo%d%s"'
                                     % (shot["id"], photos.TYPES.get(shot["mime"], "")))])
+
+    def _doc(self, conn, sess, rest):
+        """/doc/12 reads it; /doc/12/file hands back the original. Behind the
+        login: a signed tenancy agreement has a signature and an address on it."""
+        ident, _, want = rest.partition("/")
+        if want == "file":
+            doc = tenancy.get_document(conn, ident)
+            if doc is None or not doc.get("bytes"):
+                return self._send(page("Not here", not_found(self.path), sess), 404)
+            name = doc["filename"] or (tenancy.slugify(doc["title"])
+                                       + tenancy.FILE_TYPES.get(doc["mime"], ""))
+            return self._send(doc["bytes"], ctype=doc["mime"] or "application/octet-stream",
+                              headers=[("Cache-Control", "private, max-age=3600"),
+                                       ("Content-Disposition",
+                                        'inline; filename="%s"' % name.replace('"', ""))])
+        title, body = view_document(conn, sess, ident)
+        if body is None:
+            return self._send(page("Not here", not_found(self.path), sess), 404)
+        return self._send(page(title, body, sess, "/docs"))
 
     def _unhold(self):
         if getattr(self, "_held", False):
@@ -751,6 +1016,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(view_map(conn, sess, q))
             if path.startswith("/photo/"):
                 return self._photo(conn, path[len("/photo/"):])
+            if path.startswith("/doc/"):
+                return self._doc(conn, sess, path[len("/doc/"):])
             if path.startswith("/static/"):
                 return self._static(path[len("/static/"):])
             fn = VIEWS.get(path)
@@ -867,10 +1134,14 @@ def not_found(path):
 
 
 def login_page(msg=None):
+    """Show is not a convenience. A password typed blind into a phone with wet
+    hands is the reason for most of the failed attempts that lock the account."""
     body = ('<div class=login>%s<form method=post action="/login">'
             '<label>Email</label><input name=email type=email autocomplete=username required>'
-            '<label>Password</label><input name=password type=password '
+            '<label for=pw>Password</label><input id=pw name=password type=password '
             'autocomplete=current-password required>'
+            '<div class=peek><button type=button data-peek=pw>Show</button>'
+            '<span class=stat>see what you are typing</span></div>'
             '<p></p><button class=go style="width:100%%">Sign in</button></form></div>'
             % ('<p class=err>%s</p>' % e(msg) if msg else ""))
     return page("Sign in", body)
@@ -976,10 +1247,42 @@ def post_stockmove(conn, sess, form, files):
     return "/stock"
 
 
+def post_access(conn, sess, form, files):
+    """Record a code, a login or the bank details. An empty box keeps what is
+    there - the gate code changes, the note beside it does not."""
+    try:
+        tenancy.set_access(conn, form.get("key", ""), secret=form.get("secret"),
+                           identity=form.get("identity"), notes=form.get("notes"))
+    except KeyError:
+        return "/access?e=" + urllib.parse.quote("no such entry")
+    return "/access"
+
+
+def post_document(conn, sess, form, files):
+    part = (files or {}).get("file")
+    try:
+        doc_id = tenancy.add_document(
+            conn, form.get("title") or "Untitled",
+            data=part.data if part and part.data else None,
+            mime=(part.content_type or "").lower() if part and part.data else None,
+            filename=part.filename if part and part.data else None,
+            body=(form.get("body") or "").strip() or None,
+            kind=form.get("kind", "tenancy"), dated=form.get("dated") or None)
+    except ValueError as bad:
+        return "/docs?e=" + urllib.parse.quote(str(bad))
+    return "/doc/%d" % doc_id
+
+
+def post_document_delete(conn, sess, form, files):
+    tenancy.delete_document(conn, int(form["id"]))
+    return "/docs"
+
+
 POSTS = {"/done": post_done, "/log": post_log, "/leave": post_leave,
          "/spend": post_spend, "/stockmove": post_stockmove,
          "/photo": post_photo, "/photo-delete": post_photo_delete,
-         "/receipt": post_receipt}
+         "/receipt": post_receipt, "/access": post_access,
+         "/document": post_document, "/document-delete": post_document_delete}
 
 
 def serve(host="127.0.0.1", port=8765, db_path=None):
