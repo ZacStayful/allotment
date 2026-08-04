@@ -963,6 +963,35 @@ class TestServerRoutes(Base):
         self.assertEqual(status, 404)
         self.assertIn(b'href="/week"', body)
 
+    def login_cookie_header(self, forwarded_proto=None):
+        """The Set-Cookie off the login itself. urlopen follows the 303, which
+        would hand back the headers of the page after it instead."""
+        import http.client
+        import urllib.parse
+        body = urllib.parse.urlencode(
+            {"email": "zac@example.com", "password": "correct horse battery"})
+        c = http.client.HTTPConnection("127.0.0.1", self.port)
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if forwarded_proto:
+            headers["X-Forwarded-Proto"] = forwarded_proto
+        c.request("POST", "/login", body, headers)
+        resp = c.getresponse()
+        resp.read()
+        out = resp.getheader("Set-Cookie")
+        c.close()
+        return out
+
+    def test_the_session_cookie_is_secure_behind_https_and_not_on_plain_http(self):
+        """The hosted copy is public and behind TLS; a local `plot serve` is
+        not, and a Secure cookie there is accepted and then never sent back."""
+        plain = self.login_cookie_header()
+        self.assertIn("plot_session=", plain)
+        self.assertNotIn("Secure", plain)
+
+        behind_tls = self.login_cookie_header("https")   # what Vercel forwards
+        self.assertIn("Secure", behind_tls)
+        self.assertIn("HttpOnly", behind_tls)
+
     def test_pages_require_a_session(self):
         status, _, headers = self.get("/")
         self.assertEqual(status, 200)

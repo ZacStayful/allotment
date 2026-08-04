@@ -135,7 +135,25 @@ container that proxies from outside needs `--host 0.0.0.0`.
 It speaks plain HTTP. That is right for a
 machine on your own network. **Do not expose it to the internet without a TLS
 reverse proxy in front of it** — a password over plain HTTP is a password in
-public.
+public. The session cookie is marked `Secure` when the request arrived over
+HTTPS and not when it did not, read from `X-Forwarded-Proto`: on the hosted copy
+that closes the plain-HTTP leak, and locally it avoids setting a cookie the
+browser accepts and then never sends back.
+
+### Making the hosted copy reachable
+
+The app gates itself and nothing else. If the production URL asks for a *Vercel*
+login rather than the plot's own, that is **Deployment Protection**, not this
+code: Project → Settings → Deployment Protection → Vercel Authentication →
+Disabled, or *Only Preview Deployments*. It applies immediately, with no
+redeploy. Preview URLs stay protected on the paid plans however that is set, so
+share the production URL.
+
+Once it is off, the login is the only thing between the internet and the plot:
+PBKDF2-HMAC-SHA256 at 240,000 iterations, server-side sessions, a CSRF token on
+every form, and a fifteen-minute lockout after eight bad attempts. `robots.txt`
+disallows everything, so the URL is reachable without being indexed — but it is
+public, so use a password you would be happy to see brute-forced at leisure.
 
 ## Commands
 

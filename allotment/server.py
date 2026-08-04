@@ -877,6 +877,20 @@ class Handler(BaseHTTPRequestHandler):
             close_quietly(conn)
         self._unhold()
 
+    def _secure(self):
+        """`; Secure` when the browser reached us over HTTPS, and not otherwise.
+
+        The hosted copy is public and behind TLS, where a session cookie without
+        this can be sent over a plain-HTTP request to the same name and read off
+        the wire. A local `plot serve` is plain HTTP, and a Secure cookie there
+        is one the browser accepts and then never sends back - a login that
+        appears to work and then bounces you to /login for ever. Vercel
+        terminates TLS and forwards the original scheme in X-Forwarded-Proto, so
+        that is the thing to look at rather than the socket.
+        """
+        proto = self.headers.get("X-Forwarded-Proto", "").split(",")[0].strip().lower()
+        return "; Secure" if proto == "https" else ""
+
     def _cookie(self):
         raw = self.headers.get("Cookie", "")
         for part in raw.split(";"):
@@ -956,8 +970,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._redirect("/login")
             if path == "/logout":
                 auth.end_session(conn, sess["token"])
-                return self._redirect("/login", [("Set-Cookie",
-                                                  "plot_session=; Max-Age=0; Path=/")])
+                # Cleared with the same attributes it was set with, or the
+                # browser keeps the old cookie alongside the empty one.
+                return self._redirect("/login", [
+                    ("Set-Cookie", "plot_session=; Max-Age=0; Path=/" + self._secure())])
             if path == "/map":
                 return self._send(view_map(conn, sess, q))
             if path.startswith("/photo/"):
@@ -1001,8 +1017,8 @@ class Handler(BaseHTTPRequestHandler):
                            else "Wrong email or password.")
                     return self._send(login_page(msg), 401)
                 token, _ = auth.create_session(conn, user["id"])
-                cookie = ("plot_session=%s; HttpOnly; SameSite=Lax; Path=/; Max-Age=%d"
-                          % (token, config.SESSION_HOURS * 3600))
+                cookie = ("plot_session=%s; HttpOnly; SameSite=Lax; Path=/; Max-Age=%d%s"
+                          % (token, config.SESSION_HOURS * 3600, self._secure()))
                 return self._redirect("/", [("Set-Cookie", cookie)])
 
             sess = auth.session(conn, self._cookie())
