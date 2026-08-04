@@ -803,6 +803,19 @@ class TestServerRoutes(Base):
         self.assertEqual(self.get("/doc/9999", cookie)[0], 404)
         self.assertEqual(self.get("/doc/not-a-number/file", cookie)[0], 404)
 
+    def test_a_database_seeded_before_the_paperwork_gets_it_on_the_next_boot(self):
+        """The hosted copy has no shell to run a migration in, and the seed is
+        gated on an empty jobs table - so anything added later must notice its
+        own absence or it never arrives."""
+        from allotment import server
+        self.conn.execute("DELETE FROM documents")
+        self.conn.execute("DELETE FROM site_access")
+        self.conn.commit()
+        server.bootstrap(self.conn)
+        self.assertEqual(len(tenancy.all_documents(self.conn)), 3)
+        self.assertEqual(len(tenancy.all_access(self.conn)), len(tenancy.ACCESS))
+        self.assertTrue(self.conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"])
+
     def test_robots_and_health_need_no_login(self):
         self.assertEqual(self.get("/robots.txt")[0], 200)
         self.assertEqual(self.get("/healthz")[0], 200)

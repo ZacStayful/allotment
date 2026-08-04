@@ -1087,6 +1087,15 @@ def bootstrap(conn):
         seed.seed(conn)
         if db.get_setting(conn, "season_start", None) in (None, "2026-08-01"):
             db.set_setting(conn, "season_start", date.today().isoformat())
+    elif not conn.execute("SELECT COUNT(*) c FROM documents").fetchone()["c"]:
+        # A database seeded before the paperwork existed. There is no migration
+        # step in this app by design, so anything added later has to notice its
+        # own absence: the jobs are there, the documents are not, so seed those
+        # and leave everything else alone. Gating the whole seed on an empty
+        # jobs table would mean the hosted copy never sees anything added after
+        # its first boot.
+        tenancy.seed(conn)
+        seed.first_rent(conn)
     if not conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]:
         pw = os.environ.get("ALLOTMENT_PASSWORD")
         if pw:
