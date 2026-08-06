@@ -154,7 +154,7 @@ def page(title, body, sess=None, path="/"):
             "<link rel=icon href='/favicon.ico' type='image/svg+xml'>"
             "<title>%s</title><style>%s</style></head><body><div class=wrap>"
             "<header><div><p class=sub>%s</p><h1>%s</h1></div></header>%s%s"
-            "<p class=foot>Albert Village &middot; 11.4 x 11.4 m &middot; organic only "
+            "<p class=foot>Albert Village &middot; 11.7 x 10.7 m &middot; organic only "
             "&middot; no vehicle access</p></div><script>%s</script></body></html>"
             % (e(title), CSS, e(config.SITE_NAME), e(title), nav, body,
                SHRINK_JS if sess else ""))

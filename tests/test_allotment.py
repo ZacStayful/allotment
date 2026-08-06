@@ -140,7 +140,7 @@ class TestClayAndWeather(Base):
         self.weather_day(today - timedelta(days=1), rain=9)
         wx = Weather(self.conn, today)
         self.assertFalse(wx.soil_workable(today))
-        reason = rules.blocked_reason(self.conn, self.job("rough_dig_the_potato_ground"),
+        reason = rules.blocked_reason(self.conn, self.job("rough_dig_the_potato_row"),
                                       wx, today)
         self.assertIn("clay", reason)
 
@@ -276,9 +276,12 @@ class TestSun(Base):
         self.assertAlmostEqual(sun.altitude_deg(date(2027, 12, 21), 12), 13.8, delta=0.2)
         self.assertAlmostEqual(sun.altitude_deg(date(2027, 3, 21), 12), 36.8, delta=0.3)
 
-    def test_two_metre_structure_reaches_six_metres_north_west_at_the_equinox(self):
+    def test_two_metre_structure_reaches_four_and_a_half_metres_at_the_equinox(self):
+        # On the V2 070 bearing the fence runs more nearly along the morning
+        # shadow than across it, so a 2 m structure reaches 4.5 m, not the 6.0 m
+        # the old 045 layout gave.
         reach, hour = sun.worst_nw_reach(2.0)
-        self.assertAlmostEqual(reach, 6.0, delta=0.2)
+        self.assertAlmostEqual(reach, 4.5, delta=0.2)
         self.assertEqual(hour, 8.0)
 
     def test_placement_rule_rejects_a_tall_structure_near_the_neighbour(self):
@@ -291,23 +294,32 @@ class TestSun(Base):
                          "every tall thing should already be in the south-east half")
 
     def test_beds_do_not_shade_themselves(self):
-        h = sun.zone_sun_hours(self.conn, "b1", date(2027, 4, 15))
+        h = sun.zone_sun_hours(self.conn, "bedA", date(2027, 4, 15))
         self.assertGreater(h, 6.0)
 
-    def test_the_treeline_corner_is_genuinely_shaded(self):
-        self.assertLess(sun.zone_sun_hours(self.conn, "fruit", date(2027, 4, 15)), 4.0)
+    def test_the_woodland_end_loses_sun_to_the_treeline(self):
+        """The woodland is ENE of the plot, so it takes morning sun, not midday.
+
+        Nothing growable drops under four hours the way the old south-east
+        treeline did - but the front face still measurably trails the gate end,
+        and that is why the phacelia goes there and the beds do not.
+        """
+        when = date(2027, 4, 15)
+        front = sun.zone_sun_hours(self.conn, "phacelia", when)
+        gate = sun.zone_sun_hours(self.conn, "bed3R", when)
+        self.assertLess(front, gate - 2.0)
 
 
 class TestWeeds(Base):
     def test_pressure_is_highest_at_the_woodland_edge(self):
         zs = weeds.zone_pressure(self.conn)
         by_id = {z["zone"]: z["pressure"] for z in zs}
-        self.assertGreater(by_id["comp"], by_id["b4"])
+        self.assertGreater(by_id["bramble"], by_id["bed3R"])
 
     def test_observation_overrides_prediction(self):
-        before = {z["zone"]: z["pressure"] for z in weeds.zone_pressure(self.conn)}["b4"]
-        weeds.log_observation(self.conn, date(2027, 5, 1), 1.0, zone_id="b4")
-        after = {z["zone"]: z["pressure"] for z in weeds.zone_pressure(self.conn)}["b4"]
+        before = {z["zone"]: z["pressure"] for z in weeds.zone_pressure(self.conn)}["bed3R"]
+        weeds.log_observation(self.conn, date(2027, 5, 1), 1.0, zone_id="bed3R")
+        after = {z["zone"]: z["pressure"] for z in weeds.zone_pressure(self.conn)}["bed3R"]
         self.assertGreater(after, before)
 
     def test_weeding_order_splits_the_twenty_minutes(self):
@@ -395,20 +407,20 @@ class TestRotation(Base):
     def test_same_family_cannot_return_within_three_years(self):
         self.conn.execute(
             "INSERT INTO plantings(crop_id,zone_id,planted_date,status) "
-            "VALUES('kale','b1',?,'growing')", (date.today().isoformat(),))
+            "VALUES('kale','bedA',?,'growing')", (date.today().isoformat(),))
         self.conn.commit()
-        self.assertIn("cannot go back", rotation.validate(self.conn, "b1", "brassica"))
-        self.assertIsNone(rotation.validate(self.conn, "b2", "brassica"))
+        self.assertIn("cannot go back", rotation.validate(self.conn, "bedA", "brassica"))
+        self.assertIsNone(rotation.validate(self.conn, "bed1L", "brassica"))
 
-    def test_the_keep_clear_strip_is_never_a_growing_zone(self):
-        self.assertIn("not a growing zone", rotation.validate(self.conn, "clear", "allium"))
-        z = self.conn.execute("SELECT growable FROM zones WHERE id='clear'").fetchone()
+    def test_the_bramble_margin_is_never_a_growing_zone(self):
+        self.assertIn("not a growing zone", rotation.validate(self.conn, "bramble", "allium"))
+        z = self.conn.execute("SELECT growable FROM zones WHERE id='bramble'").fetchone()
         self.assertEqual(z["growable"], 0)
 
     def test_four_year_cycle_moves_every_group_on(self):
         y1 = rotation.plan_for(self.conn, 1)
         y2 = rotation.plan_for(self.conn, 2)
-        for bed in ("b1", "b2", "b3", "b4"):
+        for bed in ("bedA", "bed1L", "bed1R", "bed2L", "bed2R", "bed3L", "bed3R"):
             self.assertNotEqual(y1[bed], y2[bed])
         self.assertEqual(rotation.plan_for(self.conn, 5), y1)
 

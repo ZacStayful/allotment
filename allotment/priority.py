@@ -179,7 +179,7 @@ def risks(conn, wx, today=None):
     if wx.gale_risk(today):
         out.append(("Wind", "Gusts %.0f kph - check tunnel anchoring today" % wx.wind(today)))
     if 4 <= today.month <= 6 and wx.slug_night(today):
-        out.append(("Slugs", "Rain yesterday - patrol the shaded SE corner tonight"))
+        out.append(("Slugs", "Rain yesterday - patrol the bramble margin tonight"))
     if wx.frost_risk(today) and 3 <= today.month <= 5:
         out.append(("Frost", "Under 2°C forecast - fleece anything tender"))
 

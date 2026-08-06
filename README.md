@@ -1,6 +1,6 @@
 # Allotment
 
-Plot 129.8 m², Albert Village Allotment Association. A jobs engine that tells you
+Plot 125.2 m² — 11.7 × 10.7 m on a 070° bearing, Albert Village Allotment Association. A jobs engine that tells you
 what needs doing today, and the ledger that tells you what it really cost.
 
 Python 3.9+. Locally it is standard library only — no pip install, no framework,
@@ -17,7 +17,7 @@ against Postgres, because a serverless filesystem cannot keep a database file.
 
 ```
 SATURDAY 1 AUGUST          Rain 3d: 0mm   Max 21°C   Min 10°C   Soil: workable
-  1. Water the beds and pollinator bed            Either     25m
+  1. Water the beds and the nursery               Either     25m
      Only 0 mm rain in the last 3 days
   2. Apply in writing for shed and polytunnel per Site       30m
      Window closes in 152 days
@@ -143,18 +143,33 @@ These come from the tenancy documents and are not advisory.
 
 ## The map
 
-`plot serve`, then open `/map`. Seven layers over one footprint: layout, sun and
-shade, weed pressure, trouble spots, watering, rotation, neighbour shading.
+`plot serve`, then open `/map` — the V2 survey drawing, at 1:20. Six layers over
+one footprint: beds and paths, the four-course rotation, sun and shade, water and
+hose reach, the barrow route, and the site rules.
 
-The sun layer is real solar geometry for 52.75°N, not a sketch — verified against
-60.7° at midsummer noon, 13.8° at midwinter, 36.8° at the equinox. Sun hours are
-sampled every 30 minutes over a 19 × 19 grid of 0.6 m cells. The same arithmetic
-runs in Python (`allotment/sun.py`) and in the page, and the two agree to the
-decimal: bed 1 gets 9.5 hours on 15 April in both.
+The plot frame is the drawing's: x = 0 is the fenced neighbour, y = 0 is the
+woodland edge, y = 10.7 is the gate, and up the drawing is the 070° bearing.
 
-Zone geometry lives in the database, so the drawing and the model cannot drift
-apart. `allotment/static/map.html` also opens straight off disk, falling back to
-a built-in copy of the layout.
+The sun layer is real solar geometry for 52.76°N, not a sketch — verified against
+60.7° at midsummer noon, 13.8° at midwinter, 36.8° at the equinox. The shade
+layer casts a real shadow polygon for every structure and measures, live, how far
+your own shadows cross the neighbour's fence: nothing at midsummer noon, 0.4 m at
+the equinox, over 5 m through the winter. That is what the 1.5 m low-crop strip
+inside the fence is for.
+
+Sun hours are sampled every 30 minutes over a 20 × 18 grid of 0.6 m cells. The
+same arithmetic runs in Python (`allotment/sun.py`) and in the page, and the two
+agree on shadow direction to three decimal places.
+
+Zone geometry lives in the database, seeded from the same coordinates the drawing
+uses, so the two cannot drift apart — and if they ever do, the page says so at
+the top of the panel instead of quietly dropping the overlays.
+`allotment/static/map.html` opens straight off disk too, without the database.
+
+Three things on the drawing are still unmeasured and are flagged rather than
+guessed: the car park distance behind the ~76-load barrow estimate, whether the
+right-hand boundary is a path or a second neighbour, and the woodland canopy
+height (assumed 8 m, adjustable in the panel).
 
 ## What the numbers are for
 
@@ -181,7 +196,7 @@ of what it actually took. The original planned figure is kept in
 allotment/
   config.py      site constants, thresholds, budgets, plan hours
   db.py          schema, and the SQLite/Postgres backends
-  seeddata.py    zones, crops, 90 jobs, rotation, trouble spots, opening stock
+  seeddata.py    zones, crops, 87 jobs, rotation, trouble spots, opening stock
   seed.py        loads it, idempotently
   rules.py       the seven rule types, materialisation, blocking
   weather.py     Open-Meteo cache and derived values
