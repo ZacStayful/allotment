@@ -475,6 +475,9 @@ def view_map(conn, sess, q):
                "groups": {k: v for k, v in
                           __import__("allotment.seeddata", fromlist=["x"]).GROUP_NAMES.items()},
                "weeds": weeds.current(conn, zones), "lat": config.LAT,
+               "plot": {"w": config.PLOT_W, "d": config.PLOT_D,
+                        "area": config.PLOT_AREA, "bearing": config.BEARING,
+                        "lat": config.LAT},
                "nav": NAV}
     return doc.replace("/*__PLOT_DATA__*/null",
                        json.dumps(payload).replace("</", "<\\/"))

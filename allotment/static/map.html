@@ -3,489 +3,1151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Plot Map — layers</title>
+<title>Albert Village Allotments — full plot plan V2</title>
 <style>
 :root{
-  --ground:#111917;--ground-2:#1C2722;--bone:#FFFFFF;--dim:#D8E0D9;--rule:#4A5C52;
-  --sun:#FFD166;--water:#6FB3C9;--weed:#C98BE0;--alert:#FF8B7E;--green:#8FC46B;
-  --ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  --data:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --board:#16292E; --board-2:#1E353B; --sheet:#E8EBE4;
+  --ink:#14302E; --ink-soft:#4A6260; --oxide:#A8432B;
+  --water:#237E8C; --sun:#E0A32C; --head:#7FA9A6;
+  --rule:rgba(127,169,166,.24);
+  --ui:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--ground);color:var(--bone);font-family:var(--ui);font-weight:500;-webkit-font-smoothing:antialiased}
-body.light{--ground:#FFF;--ground-2:#F2F4F1;--bone:#101614;--dim:#3A4A42;--rule:#C3CDC6;--sun:#8A5A00;--water:#1F5F73;--weed:#6B2E86;--alert:#B3241A;--green:#3F6B21}
-.wrap{max-width:760px;margin:0 auto;padding:20px 15px 60px}
-header{border-bottom:1px solid var(--rule);padding-bottom:14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
-.sub{font-family:var(--data);font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--sun);margin:0 0 7px}
-h1{font-size:clamp(26px,6vw,40px);font-weight:800;letter-spacing:-.02em;margin:0;line-height:1}
-h2{font-size:19px;font-weight:800;margin:22px 0 8px}
-p{font-size:15px;line-height:1.55;margin:0 0 11px;color:var(--dim)}
-button{font-family:var(--ui);font-weight:700;cursor:pointer;transition:.15s}
-.btn{background:none;border:1px solid var(--rule);color:var(--dim);font-size:13.5px;padding:8px 13px}
-.btn:hover{color:var(--bone);border-color:var(--bone)}
-.btn.sel{background:var(--sun);border-color:var(--sun);color:#111917}
-.layers{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-nav a{font-family:var(--data);font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;text-decoration:none;color:var(--dim);border:1px solid var(--rule);padding:7px 11px}
-nav a:hover{color:#111917;background:var(--sun);border-color:var(--sun)}
-.figwrap{background:var(--ground-2);border:1px solid var(--rule);padding:6px}
-svg{width:100%;height:auto;display:block}
-label{display:block;font-family:var(--data);font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);margin:12px 0 6px}
-input[type=range]{width:100%;accent-color:var(--sun)}
-.readout{font-family:var(--data);font-size:12.5px;font-weight:700;color:var(--sun);letter-spacing:.05em}
-.info{border:1px solid var(--rule);border-left:3px solid var(--sun);padding:13px 15px;margin-top:13px;min-height:80px}
-.info h4{margin:0 0 5px;font-size:17px;font-weight:800}
-.info .m{font-family:var(--data);font-size:11.5px;font-weight:700;color:var(--sun);letter-spacing:.07em;display:block;margin-bottom:7px}
-.info p{margin:0;font-size:15px}
-.key{display:flex;flex-wrap:wrap;gap:10px 18px;margin-top:11px;font-family:var(--data);font-size:11px;font-weight:600;color:var(--dim)}
-.key i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:-1px;border:1px solid rgba(128,128,128,.4)}
-.pin{cursor:pointer}
+html,body{margin:0;padding:0}
+body{background:var(--board);color:#E4EDEA;font-family:var(--ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1400px;margin:0 auto;padding:22px 18px 60px}
+
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;
+  border-bottom:1px solid var(--rule);padding-bottom:14px;margin-bottom:18px}
+header h1{margin:0;font-size:clamp(20px,3.2vw,29px);font-weight:700;letter-spacing:-.01em}
+header .site{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.2em;color:var(--head);margin:0 0 6px}
+header .coords{font-family:var(--mono);font-size:11px;color:var(--ink-soft);color:#8FA9A5;text-align:right}
+
+main{display:flex;gap:18px;align-items:flex-start}
+.sheetwrap{flex:1;min-width:0}
+.sheet{background:var(--sheet);padding:10px;border-radius:2px;box-shadow:0 10px 34px rgba(0,0,0,.45)}
+.sheet svg{display:block;width:100%;height:auto}
+
+.panel{width:336px;flex:0 0 336px;display:flex;flex-direction:column;gap:12px;
+  max-height:calc(100vh - 40px);overflow-y:auto;padding-right:2px}
+.card{background:var(--board-2);border:1px solid var(--rule);border-radius:3px;padding:13px 14px}
+.card h2{font-family:var(--mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.2em;
+  color:var(--head);margin:0 0 10px}
+.card p{margin:0 0 8px}
+.card p:last-child{margin-bottom:0}
+
+.toggles{display:flex;flex-direction:column;gap:2px}
+.toggles label{display:flex;align-items:center;gap:9px;padding:5px 4px;cursor:pointer;border-radius:2px}
+.toggles label:hover{background:rgba(127,169,166,.09)}
+.toggles input{accent-color:var(--sun);width:15px;height:15px;flex:none;cursor:pointer;margin:0}
+
+.btnrow{display:flex;gap:5px;flex-wrap:wrap}
+.btnrow button{flex:1;min-width:56px;font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.05em;
+  padding:7px 4px;background:transparent;color:#B7CFCB;border:1px solid var(--rule);border-radius:2px;cursor:pointer}
+.btnrow button:hover{border-color:var(--head);color:#fff}
+.btnrow button[aria-pressed="true"]{background:var(--sun);border-color:var(--sun);color:#16292E}
+.btnrow button:focus-visible,.toggles input:focus-visible,input:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+
+.fieldlab{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:#8FA9A5;
+  display:block;margin:11px 0 5px}
+input[type=range]{width:100%;accent-color:var(--sun);margin:0}
+input[type=number]{width:100%;background:#122127;border:1px solid var(--rule);color:#E4EDEA;
+  font-family:var(--mono);font-size:13px;padding:6px 8px;border-radius:2px}
+.pair{display:flex;gap:10px}
+.pair>div{flex:1}
+
+.readout{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--sun);letter-spacing:.02em;margin-top:9px}
+.readout.warn{color:#F0836B}
+.sub{font-family:var(--mono);font-size:11px;color:#8FA9A5;margin-top:4px}
+
+#detail h3{margin:0 0 3px;font-size:16px;font-weight:700;color:#fff}
+#detail .meta{font-family:var(--mono);font-size:11px;color:var(--sun);letter-spacing:.05em;margin-bottom:8px}
+#detail .grp{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:var(--head);
+  margin:12px 0 4px;padding-top:9px;border-top:1px solid var(--rule)}
+#detail .empty{color:#8FA9A5}
+
+table.sched{width:100%;border-collapse:collapse;font-size:13px}
+table.sched td{padding:3px 0;border-bottom:1px solid rgba(127,169,166,.12)}
+table.sched td+td{text-align:right;font-family:var(--mono);font-size:12px;color:#B7CFCB}
+table.sched tr.tot td{border-bottom:none;border-top:1px solid var(--rule);font-weight:700;padding-top:6px;color:#fff}
+table.sched tr.grow td{border:none;color:var(--sun)}
+table.sched tr.grow td+td{color:var(--sun);font-weight:700}
+
+details{border-top:1px solid var(--rule);padding-top:9px;margin-top:9px}
+details:first-of-type{border-top:none;padding-top:0;margin-top:0}
+details summary{cursor:pointer;font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:#B7CFCB;list-style:none;padding:3px 0}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"+ ";color:var(--sun)}
+details[open] summary::before{content:"− "}
+details summary:hover{color:#fff}
+details ul,details ol{margin:7px 0 4px;padding-left:19px}
+details li{margin-bottom:6px;color:#C9DAD6}
+details p{margin:7px 0 4px;color:#C9DAD6}
+
+.flag{border-left:2px solid var(--oxide);padding-left:10px;font-size:13px;color:#D8C4BE}
+.flag b{color:#F0836B;font-weight:600}
+
+nav#appnav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+nav#appnav a{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;text-decoration:none;color:#B7CFCB;border:1px solid var(--rule);
+  padding:7px 11px;border-radius:2px}
+nav#appnav a:hover{background:var(--sun);border-color:var(--sun);color:#16292E}
+nav#appnav a[aria-current="page"]{background:var(--sun);border-color:var(--sun);color:#16292E}
+
+.notice{border:1px solid rgba(168,67,43,.55);background:rgba(168,67,43,.12);
+  border-radius:3px;padding:12px 14px;margin-bottom:12px}
+.notice h2{color:#F0836B}
+.notice p{margin:0 0 7px;font-size:13px;color:#E4D3CE}
+.notice p:last-child{margin-bottom:0}
+
+.hidden{display:none}
+
+@media (max-width:1020px){
+  main{flex-direction:column;align-items:stretch}
+  .sheetwrap{width:100%;flex:none}
+  .panel{width:100%;flex:none;max-height:none;overflow:visible}
+}
+@media print{
+  body{background:#fff;color:#000}
+  .panel,header .coords{display:none}
+  .sheet{box-shadow:none;padding:0}
+  .wrap{padding:0;max-width:none}
+}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <header>
- <div><p class="sub">Albert Village · 11.4 × 11.4 m · 52.75°N</p><h1>Plot map</h1></div>
- <button class="btn" id="theme">Light</button>
+  <div>
+    <p class="site">Albert Village Allotment Association · North West Leicestershire</p>
+    <h1>Full plot plan — V2</h1>
+  </div>
+  <div class="coords">52°45&#39;34.7&quot;N &nbsp;1°33&#39;12.5&quot;W<br>52.7596°N &nbsp;−1.5535°W · 11.7 × 10.7 m</div>
 </header>
 
-<nav id="appnav"></nav>
-<div class="layers" id="layers"></div>
-<div class="figwrap"><svg id="map" viewBox="0 0 460 470"></svg></div>
-<div id="controls"></div>
-<div class="info" id="info"><h4>Tap the map</h4><p>Every layer is interactive. Tap a bed, a heat cell or a pin to see what it means.</p></div>
-<div class="key" id="key"></div>
-<div id="notes"></div>
+<nav id="appnav" hidden></nav>
 
+<main>
+  <div class="sheetwrap">
+    <div class="sheet">
+      <svg id="plan" viewBox="0 0 800 820" role="img"
+           aria-label="Scaled plan of an 11.7 by 10.7 metre allotment plot at Albert Village, showing beds, paths, shed, polytunnel, boundaries and the four-course rotation.">
+        <defs>
+          <pattern id="hatchShade" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="7" height="7" fill="#14302E" opacity="0.10"/>
+            <line x1="0" y1="0" x2="0" y2="7" stroke="#14302E" stroke-width="3" opacity="0.30"/>
+          </pattern>
+          <pattern id="hatchWood" width="15" height="15" patternUnits="userSpaceOnUse">
+            <rect width="15" height="15" fill="#D7DEC8"/>
+            <circle cx="4" cy="4.5" r="2.9" fill="#55632F" opacity="0.62"/>
+            <circle cx="11.5" cy="10.5" r="2.1" fill="#55632F" opacity="0.44"/>
+            <circle cx="12" cy="2.5" r="1.2" fill="#55632F" opacity="0.30"/>
+          </pattern>
+          <pattern id="hatchBram" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(30)">
+            <rect width="8" height="8" fill="#E4E2D4"/>
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#7A5A2E" stroke-width="2.2" opacity="0.55"/>
+          </pattern>
+          <clipPath id="plotClip"><rect id="plotClipRect" x="0" y="0" width="0" height="0"/></clipPath>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#237E8C"/>
+          </marker>
+          <marker id="arrowOx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#A8432B"/>
+          </marker>
+        </defs>
+        <g id="lyr-base"></g>
+        <g id="lyr-zones"></g>
+        <g id="lyr-rotation"></g>
+        <g id="lyr-rules"></g>
+        <g id="lyr-haulage"></g>
+        <g id="lyr-water"></g>
+        <g id="lyr-shade"></g>
+        <g id="lyr-edges"></g>
+        <g id="lyr-furniture"></g>
+      </svg>
+    </div>
+  </div>
+
+  <aside class="panel">
+
+    <div class="notice hidden" id="mismatch">
+      <h2>Drawing and database disagree</h2>
+      <div id="mismatchBody"></div>
+    </div>
+
+    <div class="card">
+      <h2>Layers</h2>
+      <div class="toggles" id="toggles"></div>
+    </div>
+
+    <div class="card hidden" id="shadeCard">
+      <h2>Sun &amp; shade</h2>
+      <span class="fieldlab">Season</span>
+      <div class="btnrow" id="seasonBtns">
+        <button type="button" data-dec="23.44" aria-pressed="false">21 Jun</button>
+        <button type="button" data-dec="0" aria-pressed="true">Equinox</button>
+        <button type="button" data-dec="-23.44" aria-pressed="false">21 Dec</button>
+      </div>
+      <label class="fieldlab" for="timeSlider">Solar time — <span id="timeLabel">12:00</span></label>
+      <input type="range" id="timeSlider" min="4" max="20" step="0.25" value="12">
+      <div class="readout" id="sunReadout"></div>
+      <div class="readout" id="spillReadout"></div>
+      <div class="sub" id="spillSub"></div>
+    </div>
+
+    <div class="card">
+      <h2>Rotation year</h2>
+      <div class="btnrow" id="yearBtns">
+        <button type="button" data-year="1" aria-pressed="true">Yr 1</button>
+        <button type="button" data-year="2" aria-pressed="false">Yr 2</button>
+        <button type="button" data-year="3" aria-pressed="false">Yr 3</button>
+        <button type="button" data-year="4" aria-pressed="false">Yr 4</button>
+      </div>
+      <div class="sub" id="yearSub"></div>
+    </div>
+
+    <div class="card">
+      <h2>Site variables</h2>
+      <div class="pair">
+        <div>
+          <label class="fieldlab" for="bearingInput">Bearing °</label>
+          <input type="number" id="bearingInput" min="0" max="359" step="1" value="70">
+        </div>
+        <div>
+          <label class="fieldlab" for="canopyInput">Canopy m</label>
+          <input type="number" id="canopyInput" min="1" max="30" step="0.5" value="8">
+        </div>
+      </div>
+      <div class="sub">Canopy height is not measured. Both feed the compass and the shade layer live.</div>
+    </div>
+
+    <div class="card" id="detail">
+      <h2>Detail</h2>
+      <div id="detailBody"><p class="empty">Tap any area on the plan</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Area schedule</h2>
+      <table class="sched" id="schedTable"></table>
+    </div>
+
+    <div class="card">
+      <h2>Notes</h2>
+
+      <details>
+        <summary>The fenced neighbour</summary>
+        <ul>
+          <li>Left boundary faces ~340°; shadows from this plot run almost exactly that way</li>
+          <li>Shade layer spill readout measures live how far over the fence structures reach</li>
+          <li>Midsummer noon: ~0 m spill. Equinox noon: ~0.4 m. Midwinter: 7 m+ (dormant ground)</li>
+          <li>The culprit is a 2 m bean row starting 600 mm off the fence — hence the 1.5 m low-crop strip</li>
+          <li>First 1.5 m inside the fence is low-crop only: onions, carrots, lettuce, phacelia</li>
+          <li>Beans, staked tomatoes and sweetcorn start 1.5 m from the fence minimum</li>
+          <li>Do not use the fence as a trellis without checking whose it is and the association rules</li>
+        </ul>
+      </details>
+
+      <details>
+        <summary>The bramble edge</summary>
+        <ul>
+          <li>Two foot of bramble is an advancing edge — canes tip-root wherever they touch soil</li>
+          <li>Cut the face back hard every winter, keep the 700 mm margin open</li>
+          <li>Expect dry, root-filled soil within ~2 m of the edge</li>
+          <li>Thorny prunings do not go in the compost bays — burn or separate slow heap</li>
+          <li>Upside: the treeline shelters from cold spring easterlies; slower gentler thaw than an exposed plot</li>
+        </ul>
+      </details>
+
+      <details>
+        <summary>Watering</summary>
+        <ul>
+          <li>40 m hose leaves ~10 m usable on the plot (30 m to the standpipe)</li>
+          <li>Far corners of woodland end sit outside the reach — see the water layer</li>
+          <li>Use 15 mm (5/8&quot;) bore, not 12.5 mm — better pressure over 30 m on a shared standpipe</li>
+          <li>Better habit: use the hose to fill butts, water from stored water at the beds</li>
+          <li>Gutter the tunnel not the shed: 8 m² tunnel roof ≈ 200 L per 25 mm rain; shed gives ~55 L</li>
+          <li>Tap off November–March: drain and lift hose each autumn, go into winter with butts full</li>
+          <li>Check association rules on hosepipes before buying</li>
+        </ul>
+      </details>
+
+      <details>
+        <summary>Build order</summary>
+        <ol>
+          <li>Cut the bramble face back and mark the 700 mm margin — gets harder every month you leave it</li>
+          <li>Peg out both side buffers at 600 mm — boundaries right on day one</li>
+          <li>Woodchip the upper cross path — all traffic to shed, bays and tunnel crosses it</li>
+          <li>Beds 1 and 2 first (nearest the gate): turves inverted, cardboard, subsoil, 10–12 cm bought compost</li>
+          <li>Compost bays next — weeds and turf stop needing to be barrowed off-site</li>
+          <li>Written committee consent, then shed (1.83 × 1.22 m), then polytunnel (4.0 × 2.0 m)</li>
+          <li>Butts and tunnel gutter before first full summer — stored water is the thing you regret not having</li>
+          <li>Phacelia into the woodland strip as soon as ground is clear</li>
+        </ol>
+      </details>
+
+      <details>
+        <summary>Permanent companions</summary>
+        <ul>
+          <li><b>Phacelia</b> — woodland strip. Dig in green before it sets seed</li>
+          <li><b>Chives</b> — along the spine path edge beside the root beds. Perennial, plant once</li>
+          <li><b>Borage</b> — one corner of the nursery area. Self-seeds; give it one spot and thin annually</li>
+          <li><b>French marigolds</b> — path edges throughout. Self-seeds; let some go to seed in September</li>
+        </ul>
+        <p>Tunnel crops are fixed and do not rotate: tomatoes all season, basil between every tomato plant, French marigolds in pots at the tunnel ends so they stay moveable.</p>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Outstanding — do not assume</h2>
+      <p class="flag"><b>Car park distance</b> from the plot gate is not yet measured. The ~76-load barrow estimate on the haulage layer depends on it.</p>
+      <p class="flag"><b>Right-hand boundary</b> type is unconfirmed — path or a second neighbour. Drawn dashed until someone says.</p>
+      <p class="flag"><b>Canopy height</b> is not measured. Default 8 m; change it above and watch the shade layer move.</p>
+    </div>
+
+  </aside>
+</main>
 </div>
 
 <script>
-/* Data injected by the server from the database. Falls back to the built-in
-   layout so this file also opens straight off disk. */
+(function(){
+"use strict";
+
+/* Injected by the server from the database. Stays null when this file is
+   opened straight off disk, and the drawing then stands on its own. */
 var PLOT = /*__PLOT_DATA__*/null;
 
-var W=11.4,D=11.4,LAT=(PLOT&&PLOT.lat)||52.75;
-/* the drawing points up the plot from the gate. Gate faces SW, so "up" on screen = NE = 45 deg */
-var BEARING=45;
+/* ---------------------------------------------------------------- constants */
+var PW = 11.7;          // plot width, metres
+var PD = 10.7;          // plot depth, metres
+var LAT = 52.7596;      // decimal degrees
+var SCALE = 50;         // pixels per metre
+var OX = 112;           // svg x origin
+var OY = 74;            // svg y origin
+var DEFAULT_BEARING = 70;
+var DEFAULT_CANOPY = 8;
 
-var FALLBACK=[
- {id:"path",x:0,y:0,w:1.0,d:11.4,h:0,c:"#6E6A5A",n:"Main path"},
- {id:"b1",x:1.3,y:0.4,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 1"},
- {id:"b2",x:3.1,y:0.4,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 2"},
- {id:"poll",x:4.9,y:0.4,w:1.0,d:2.4,h:0.6,c:"#5C7FBF",n:"Pollinators"},
- {id:"b3",x:1.3,y:3.2,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 3"},
- {id:"b4",x:3.1,y:3.2,w:1.2,d:2.4,h:0.3,c:"#7BA05B",n:"Bed 4"},
- {id:"spud",x:1.3,y:6.0,w:4.6,d:3.0,h:0.2,c:"#8B6F9E",n:"Potato ground"},
- {id:"green",x:1.3,y:9.2,w:4.6,d:1.1,h:0,c:"#3E5B3A",n:"Green manure"},
- {id:"hard",x:6.2,y:0.3,w:2.6,d:1.6,h:0,c:"#565349",n:"Hardstanding"},
- {id:"shed",x:9.1,y:0.3,w:1.85,d:1.25,h:2.1,c:"#48584F",n:"Shed"},
- {id:"butt",x:9.1,y:1.9,w:1.5,d:0.9,h:1.0,c:"#3D6B78",n:"Water butts"},
- {id:"green2",x:6.2,y:2.2,w:2.2,d:5.0,h:0,c:"#3E5B3A",n:"Green manure"},
- {id:"tun",x:8.6,y:3.2,w:2.0,d:4.0,h:2.0,c:"#9DBDB8",n:"Polytunnel"},
- {id:"bean",x:6.2,y:7.6,w:2.2,d:1.0,h:1.8,c:"#C1443A",n:"Beans"},
- {id:"comp",x:8.8,y:7.6,w:2.2,d:1.0,h:1.0,c:"#6B4F3A",n:"Compost"},
- {id:"fruit",x:6.2,y:9.0,w:5.0,d:1.3,h:1.2,c:"#A8324A",n:"Soft fruit"},
- {id:"clear",x:0,y:10.4,w:11.4,d:1.0,h:0,c:"#2A3730",n:"Keep clear (fence break)"}
+var GATE_X0 = 5.1, GATE_X1 = 6.6, GATE_MID = 5.85;
+
+var C = {
+  sheet:"#E8EBE4", ink:"#14302E", inkSoft:"#4A6260", oxide:"#A8432B",
+  water:"#237E8C", sun:"#E0A32C", wood:"#7A5A2E", struct:"#2E4A5A"
+};
+
+var KIND = {
+  bed:     {fill:"#7A8B4F", op:0.42},
+  path:    {fill:"#CFC7B4", op:0.55},
+  struct:  {fill:"#2E4A5A", op:0.42},
+  water:   {fill:"#237E8C", op:0.42},
+  phac:    {fill:"#6B5B95", op:0.42},
+  nursery: {fill:"#B7A98C", op:0.42},
+  bram:    {fill:"url(#hatchBram)", op:1},
+  infra:   {fill:"none", op:1}
+};
+
+/* ------------------------------------------------------------------- zones */
+var ZONES = [
+  {id:"bramble", name:"Bramble cut-back margin", x:0, y:0, w:11.7, h:0.7, k:"bram",
+   desc:"Two feet of advancing bramble along the whole woodland face. Cut the face back hard every winter and keep this 700 mm margin open — canes tip-root wherever they touch soil. Thorny prunings go on a burn pile or a separate slow heap, never the compost bays. Expect dry, root-filled soil within about 2 m of the edge."},
+  {id:"utility", name:"Shed & compost block", x:7.2, y:0.7, w:3.9, h:1.4, k:"infra",
+   desc:"Outline only — the footprint the committee sees. Shed and two compost bays sit inside it. Nothing goes up here without written consent."},
+  {id:"shed", name:"Shed 6 × 4 ft", x:7.35, y:0.85, w:1.83, h:1.22, k:"struct",
+   desc:"1.83 × 1.22 m — at the site cap. Written committee consent before it goes up. Do not gutter this roof for water: 25 mm of rain off 2.2 m² gives only about 55 L."},
+  {id:"compost", name:"Compost bays ×2", x:9.4, y:0.85, w:1.55, h:1.22, k:"struct",
+   desc:"Two bays, built straight after beds 1 and 2 so weeds and turf stop needing to be barrowed off site. No thorny bramble prunings in here."},
+  {id:"phacelia", name:"Green manure strip (phacelia)", x:0.6, y:0.7, w:6.3, h:1.4, k:"phac",
+   desc:"Phacelia across the woodland strip, sown as soon as the ground is clear. Dig it in green, before it sets seed. Low enough to sit inside the 1.5 m low-crop strip without shading the fence line."},
+  {id:"xp1", name:"Cross path (upper)", x:0.6, y:2.1, w:10.5, h:0.4, k:"path",
+   desc:"Every trip to the shed, the bays and the tunnel crosses this path. Woodchip it first — before any bed is built."},
+  {id:"nursery", name:"Nursery / standing-out", x:0.6, y:3.7, w:4.9, h:0.8, k:"nursery",
+   desc:"Standing-out ground for modules and pots. Borage gets one corner of this area — it self-seeds, so give it the one spot and thin it annually."},
+  {id:"butts", name:"Water butts ×2", x:6.3, y:2.5, w:0.6, h:1.4, k:"water",
+   desc:"Two butts fed from the tunnel gutter, not the shed. 8 m² of tunnel roof gives roughly 200 L per 25 mm of rain. Fill from the hose, water from the butts. Go into winter full — the standpipe is off November to March."},
+  {id:"tunnel", name:"Polytunnel 4.0 × 2.0 m", x:7.0, y:2.5, w:4.0, h:2.0, k:"struct",
+   desc:"At the site cap on length. Tomatoes all season with basil interplanted between every plant; French marigolds in pots at both ends so they stay moveable. Gutter this roof into the butts. 2.2 m to the ridge — the tallest thing on the plot."},
+  {id:"spine", name:"Central spine path", x:5.5, y:2.1, w:0.7, h:7.6, k:"path",
+   desc:"700 mm barrow route from the gate headland to the upper cross path. Chives run along its edge beside the root beds — perennial, plant once, label the edge so they do not get dug."},
+  {id:"xp2", name:"Cross path (lower)", x:0.6, y:4.5, w:10.5, h:0.4, k:"path",
+   desc:"Lower cross path — 400 mm, woodchip. Marigolds along the edges."},
+  {id:"headland", name:"Gate headland", x:0, y:9.7, w:11.7, h:1.0, k:"path",
+   desc:"Turning and unloading space inside the gate. Keep it clear — it is where every barrow load starts and finishes, and where deliveries land."},
+
+  {id:"bedA",  name:"Bed A (half size)", x:0.6, y:2.5, w:4.9, h:1.2, k:"bed", rot:1, sid:"A"},
+  {id:"bed1L", name:"Bed 1 left",  x:0.6, y:4.9, w:4.9, h:1.2, k:"bed", rot:0, sid:"1L"},
+  {id:"bed1R", name:"Bed 1 right", x:6.2, y:4.9, w:4.9, h:1.2, k:"bed", rot:0, sid:"1R"},
+  {id:"bed2L", name:"Bed 2 left",  x:0.6, y:6.5, w:4.9, h:1.2, k:"bed", rot:2, sid:"2L"},
+  {id:"bed2R", name:"Bed 2 right", x:6.2, y:6.5, w:4.9, h:1.2, k:"bed", rot:2, sid:"2R"},
+  {id:"bed3L", name:"Bed 3 left",  x:0.6, y:8.1, w:4.9, h:1.2, k:"bed", rot:3, sid:"3L"},
+  {id:"bed3R", name:"Bed 3 right", x:6.2, y:8.1, w:4.9, h:1.2, k:"bed", rot:3, sid:"3R"},
+
+  {id:"p1", name:"Path", x:0.6, y:6.1, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."},
+  {id:"p2", name:"Path", x:0.6, y:7.7, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."},
+  {id:"p3", name:"Path", x:0.6, y:9.3, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."}
 ];
 
-var Z = (PLOT && PLOT.zones) ? PLOT.zones.map(function(z){
-  return {id:z.id,x:z.x,y:z.y,w:z.w,d:z.d,h:z.height_m||0,c:z.colour||"#7BA05B",
-          n:z.name,note:z.notes,growable:z.growable};
-}) : FALLBACK;
-
-/* woodland treated as a 7 m barrier along the south-east boundary */
-var WOOD={x:11.4,y:-1,w:1.5,d:13.4,h:7};
-
-var S=34,OX=52,OY=440;
-function PX(m){return OX+m*S;}
-function PY(m){return OY-m*S;}
-var NS="http://www.w3.org/2000/svg";
-function E(n,a){var e=document.createElementNS(NS,n);for(var k in a)e.setAttribute(k,a[k]);return e;}
-function T(s,x,y,t,o){o=o||{};var e=E("text",{x:x,y:y,fill:o.fill||"#FFF","text-anchor":o.a||"middle",
- "font-family":o.mono?"ui-monospace,Menlo,monospace":"-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif",
- "font-size":o.s||11,"font-weight":o.w||700,"letter-spacing":o.ls||"0.02em"});
- if(o.rot)e.setAttribute("transform","rotate("+o.rot+" "+x+" "+y+")");
- if(o.bl)e.setAttribute("dominant-baseline",o.bl);
- e.textContent=t;s.appendChild(e);return e;}
-
-/* ---------------- solar position ---------------- */
-function solar(dayOfYear,hour){
- var dec=23.45*Math.sin(2*Math.PI*(284+dayOfYear)/365)*Math.PI/180;
- var lat=LAT*Math.PI/180;
- var H=(hour-12)*15*Math.PI/180;
- var alt=Math.asin(Math.sin(lat)*Math.sin(dec)+Math.cos(lat)*Math.cos(dec)*Math.cos(H));
- var az=Math.atan2(Math.sin(H), Math.cos(H)*Math.sin(lat)-Math.tan(dec)*Math.cos(lat));
- az=az+Math.PI-BEARING*Math.PI/180;
- return {alt:alt,az:az,altDeg:alt*180/Math.PI,azDeg:(az*180/Math.PI+360)%360};
-}
-function shadowVec(sun){
- if(sun.alt<=0.03)return null;
- var L=Math.min(30,1/Math.tan(sun.alt));
- return {dx:-Math.sin(sun.az)*L, dy:-Math.cos(sun.az)*L};
-}
-function hull(P){
- P=P.slice().sort(function(a,b){return a[0]-b[0]||a[1]-b[1];});
- var lo=[],hi=[],i;
- function cr(o,a,b){return (a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]);}
- for(i=0;i<P.length;i++){while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],P[i])<=0)lo.pop();lo.push(P[i]);}
- for(i=P.length-1;i>=0;i--){while(hi.length>=2&&cr(hi[hi.length-2],hi[hi.length-1],P[i])<=0)hi.pop();hi.push(P[i]);}
- lo.pop();hi.pop();return lo.concat(hi);
-}
-function shadowPoly(z,sv){
- if(!sv||z.h<=0.25)return null;
- var pts=[[z.x,z.y],[z.x+z.w,z.y],[z.x+z.w,z.y+z.d],[z.x,z.y+z.d]];
- var m=pts.map(function(p){return [p[0]+sv.dx*z.h,p[1]+sv.dy*z.h];});
- return hull(pts.concat(m));
-}
-function inPoly(px,py,poly){
- var c=false;
- for(var i=0,j=poly.length-1;i<poly.length;j=i++){
-  var xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
-  if(((yi>py)!==(yj>py))&&(px<(xj-xi)*(py-yi)/(yj-yi)+xi))c=!c;
- }
- return c;
-}
-
-/* ---------------- sun hours map ---------------- */
-var GC=0.6, GN=Math.ceil(W/GC);
-function sunHours(dayOfYear){
- var g=[],i,j;
- for(i=0;i<GN;i++){g[i]=[];for(j=0;j<GN;j++)g[i][j]=0;}
- for(var hr=3;hr<=21;hr+=0.5){
-  var s=solar(dayOfYear,hr);
-  if(s.alt<=0.05)continue;
-  var sv=shadowVec(s);
-  var polys=[];
-  Z.concat([WOOD]).forEach(function(z){
-   var p=shadowPoly(z,sv);
-   /* a structure never shades its own footprint */
-   if(p)polys.push({p:p,f:[z.x,z.y,z.x+z.w,z.y+z.d]});
-  });
-  for(i=0;i<GN;i++)for(j=0;j<GN;j++){
-   var cx=(i+0.5)*GC, cy=(j+0.5)*GC, lit=true;
-   for(var k=0;k<polys.length;k++){
-    var f=polys[k].f;
-    if(cx>=f[0]&&cx<=f[2]&&cy>=f[1]&&cy<=f[3])continue;
-    if(inPoly(cx,cy,polys[k].p)){lit=false;break;}
-   }
-   if(lit)g[i][j]+=0.5;
+ZONES.forEach(function(z){
+  if(z.k === "bed" && !z.desc){
+    z.desc = "4.9 × 1.2 m half-bed — 600 mm reach from either path edge, so nothing in the middle is out of arm's length. "+
+             "Both halves of a row carry the same rotation group. Crop follows the four-course rotation below.";
   }
- }
- return g;
-}
+});
 
-/* ---------------- weed pressure model ---------------- */
-function weedGrid(){
- if(PLOT&&PLOT.weeds)return PLOT.weeds;
- var g=[],i,j;
- for(i=0;i<GN;i++){g[i]=[];for(j=0;j<GN;j++){
-  var x=(i+0.5)*GC, y=(j+0.5)*GC, s=0;
-  s += Math.max(0,1-(W-x)/4.5)*1.0;
-  var edge=Math.min(x,W-x,y,D-y);
-  s += Math.max(0,1-edge/1.2)*0.85;
-  if(x<2.2) s+=0.35;
-  Z.forEach(function(z){
-   if((z.id==="spud"||z.id==="green"||z.id==="green2")&&x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.d)s+=0.45;
-   if(z.id.indexOf("b")===0&&z.id.length===2&&x>=z.x-0.35&&x<=z.x+z.w+0.35&&y>=z.y-0.35&&y<=z.y+z.d+0.35)s+=0.25;
-  });
-  var dc=Math.hypot(x-9.9,y-8.1); s+=Math.max(0,1-dc/2.0)*0.4;
-  g[i][j]=Math.min(1,s/2.2);
- }}
- return g;
-}
-
-/* ---------------- trouble spots ---------------- */
-var FALLBACK_PINS=[
- {x:1.9,y:10.0,t:"Slugs",c:"#C98BE0",w:"High",
-  d:"Damp, shaded and right against the scrub — the classic slug reservoir.",
-  a:"Patrol here after rain, April to June, after dark."}
+/* ---------------------------------------------------------------- rotation */
+var GROUPS = [
+  {name:"Potatoes (maincrop)", fill:"#8B6A3F",
+   crops:"Maincrop potatoes (left half), winter squash + 2 courgettes (right half). Two rows at 75 cm, sets 38 cm apart, ~24 per half-bed. Nothing interplanted between potato rows.",
+   comp:"Nasturtiums at path edges. Borage 1–2 plants with squash. Radish sown between potato rows at planting time as catch crop and row marker."},
+  {name:"Legumes & alliums", fill:"#5E8C6A",
+   crops:"Onion sets, garlic sets, autumn-planted garlic, climbing beans along the woodland edge starting 1.5 m clear of the fence.",
+   comp:"Summer savory interplanted with beans. Nasturtiums at path edge as blackfly trap. French marigolds at bed ends for hoverflies."},
+  {name:"Brassicas", fill:"#4F7C93",
+   crops:"Kale, purple sprouting broccoli, leeks. Net from day of planting out.",
+   comp:"Dill scattered between transplants — attracts parasitic wasps. Nasturtiums at path edge as caterpillar lure."},
+  {name:"Roots", fill:"#9C6B8E",
+   crops:"Carrots and parsnips, 5 rows at 25 cm. No fresh manure in this bed.",
+   comp:"Radish sown in the same drill as carrots — marks the row, harvested before carrots need the space. Chives along the spine path edge (permanent, perennial — plant once)."}
 ];
-var PIN_COLOUR={pest:"#C98BE0",weed:"#C98BE0",ground:"#B87333",weather:"#6FB3C9",
- bird:"#FF8B7E",water:"#FFD166"};
-var PINS = (PLOT && PLOT.pins) ? PLOT.pins.map(function(p){
-  return {x:p.x,y:p.y,t:p.title,c:PIN_COLOUR[p.kind]||"#C98BE0",w:p.severity,
-          d:p.description,a:p.remedy};
-}) : FALLBACK_PINS;
 
-var TAP={x:-1.6,y:0.6};
-
-/* ---------------- rotation ---------------- */
-function rotationFor(year){
- if(PLOT&&PLOT.rotation&&PLOT.rotation[year]){
-  var out={},m=PLOT.rotation[year];
-  for(var k in m)out[k]=(PLOT.groups&&PLOT.groups[m[k]])||m[k];
-  return out;
- }
- return {b1:"Onion & garlic",b2:"Beetroot & chard",b3:"Kale & turnip",
-         b4:"Courgettes & salad",spud:"Potatoes",green:"Green manure",green2:"Green manure"}
-        ;
-}
-
-/* ---------------- state + render ---------------- */
-var LAYERS=[
- {id:"layout",n:"Layout"},{id:"sun",n:"Sun & shade"},{id:"weed",n:"Weed pressure"},
- {id:"trouble",n:"Trouble spots"},{id:"water",n:"Watering"},{id:"rot",n:"Rotation"},
- {id:"nbr",n:"Neighbour shading"}
+/* ------------------------------------------------------------ area schedule */
+var SCHEDULE = [
+  ["Beds — 7 half-beds", "41.2"],
+  ["Polytunnel (under cover)", "8.0"],
+  ["Central spine path", "5.3"],
+  ["Cross paths", "21.0"],
+  ["Gate headland", "11.7"],
+  ["Green manure strip", "8.8"],
+  ["Bramble cut-back margin", "8.2"],
+  ["Nursery / standing-out", "3.9"],
+  ["Shed & compost block", "5.5"],
+  ["Water butts", "0.8"],
+  ["Side buffers & gaps", "10.8"]
 ];
-var cur="layout", month=6, hour=13, rotYear=1;
-var WG=weedGrid(), SG=null, sgMonth=-1;
-var MDAY=[15,46,74,105,135,166,196,227,258,288,319,349];
-var MNAME=["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-function info(title,meta,text){
- document.getElementById("info").innerHTML='<h4>'+title+'</h4>'+(meta?'<span class="m">'+meta+'</span>':'')+'<p>'+text+'</p>';
+/* ------------------------------------------------------- shadow structures */
+var STRUCTS = [
+  {id:"wood",   name:"Woodland canopy", x:-3,   y:-0.2, w:PW+6, h:0.2,  ht:null, mine:false},
+  {id:"tunnel", name:"Polytunnel",      x:7.0,  y:2.5,  w:4.0,  h:2.0,  ht:2.2,  mine:true},
+  {id:"shed",   name:"Shed",            x:7.35, y:0.85, w:1.83, h:1.22, ht:2.0,  mine:true},
+  {id:"beans",  name:"Bean row",        x:2.1,  y:4.9,  w:9.0,  h:0.05, ht:2.0,  mine:true}
+];
+
+/* -------------------------------------------------------------- layer state */
+var LAYERS = [
+  {id:"zones",    label:"Beds, paths & structures", on:true},
+  {id:"rotation", label:"Rotation",                 on:true},
+  {id:"shade",    label:"Sun & shade",              on:false},
+  {id:"water",    label:"Water & hose reach",       on:false},
+  {id:"haulage",  label:"Barrow route",             on:false},
+  {id:"rules",    label:"Site rules",               on:true}
+];
+var on = {};
+LAYERS.forEach(function(l){ on[l.id] = l.on; });
+
+var state = {
+  bearing: DEFAULT_BEARING,
+  canopy: DEFAULT_CANOPY,
+  dec: 0,
+  time: 12,
+  year: 1,
+  sel: null,
+  spill: 0
+};
+
+/* -------------------------------------------------------------- svg helpers */
+var SVGNS = "http://www.w3.org/2000/svg";
+function X(m){ return OX + m * SCALE; }
+function Y(m){ return OY + m * SCALE; }
+function n(v){ return Math.round(v * 100) / 100; }
+/* metres, always at least one decimal place: 4 -> "4.0", 1.83 -> "1.83" */
+function dim(v){ return v.toFixed(2).replace(/0$/, ""); }
+function esc(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")
+                  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
-function paintNav(){
- var el=document.getElementById("appnav");
- if(!PLOT||!PLOT.nav){el.style.display="none";return;}
- el.innerHTML=PLOT.nav.map(function(n){return '<a href="'+n[0]+'">'+n[1]+'</a>';}).join("");
-}
-function paintLayers(){
- var el=document.getElementById("layers");el.innerHTML="";
- LAYERS.forEach(function(l){
-  var b=document.createElement("button");b.className="btn"+(cur===l.id?" sel":"");b.textContent=l.n;
-  b.onclick=function(){cur=l.id;draw();paintLayers();};el.appendChild(b);
- });
-}
-function plantingsIn(id){
- if(!PLOT||!PLOT.plantings)return "";
- var p=PLOT.plantings.filter(function(q){return q.zone_id===id;});
- if(!p.length)return "";
- return "<br><br><strong style='color:var(--sun)'>In the ground now:</strong> "+
-  p.map(function(q){return (q.crop||"?")+(q.variety?" ("+q.variety+")":"")+
-   (q.expected_first_harvest?", ready "+q.expected_first_harvest:"");}).join("; ");
-}
-function base(s,dim){
- s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"#1C2722"}));
- for(var i=0;i<=11;i++){
-  s.appendChild(E("line",{x1:PX(i),y1:PY(0),x2:PX(i),y2:PY(D),stroke:"#2C3A33","stroke-width":1}));
-  s.appendChild(E("line",{x1:PX(0),y1:PY(i),x2:PX(W),y2:PY(i),stroke:"#2C3A33","stroke-width":1}));
- }
- Z.forEach(function(z){
-  var r=E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,fill:z.c,
-   "fill-opacity":dim?0.16:0.6,stroke:z.c,"stroke-opacity":dim?0.5:1,"stroke-width":1.2,"class":"pin"});
-  r.addEventListener("click",function(){
-   info(z.n,z.w+" × "+z.d+" m · "+(z.w*z.d).toFixed(1)+" m²",zoneNote(z)+plantingsIn(z.id));});
-  s.appendChild(r);
-  if(!dim){
-   var v=(z.d>z.w*1.9&&z.w*S<64);
-   T(s,PX(z.x+z.w/2),PY(z.y+z.d/2),(z.n||"").toUpperCase(),{s:9.5,bl:"middle",rot:v?-90:0});
+function paint(id, markup){
+  var el = document.getElementById(id);
+  var doc = new DOMParser().parseFromString(
+    '<svg xmlns="'+SVGNS+'">' + markup + '</svg>', "image/svg+xml");
+  while(el.firstChild) el.removeChild(el.firstChild);
+  var src = doc.documentElement;
+  if(src.getElementsByTagName("parsererror").length){
+    console.error("SVG markup error in " + id);
+    return el;
   }
- });
- s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"none",stroke:"#FFF","stroke-width":1.5}));
- T(s,PX(W)+16,PY(D/2),"WOODLAND — SE",{mono:1,s:9.5,ls:"0.14em",fill:"#96A099",rot:90});
- T(s,PX(0)-20,PY(D/2),"NEIGHBOUR — NW",{mono:1,s:9.5,ls:"0.14em",fill:"#FF8B7E",rot:-90});
- T(s,PX(W/2),PY(0)+26,"GATE — FACES SOUTH-WEST",{mono:1,s:9.5,ls:"0.14em",fill:"#FFD166"});
- var g=E("g",{transform:"translate("+(PX(W)+22)+","+(PY(D)+14)+")"});
- g.appendChild(E("path",{d:"M0,20 L0,-12 M0,-12 L-4,-4 M0,-12 L4,-4",stroke:"#FFD166","stroke-width":1.5,fill:"none",transform:"rotate(-45)"}));
- s.appendChild(g);T(s,PX(W)+22,PY(D)+48,"N",{s:12,fill:"#FFD166"});
+  var node = src.firstChild, next;
+  while(node){
+    next = node.nextSibling;
+    el.appendChild(document.importNode(node, true));
+    node = next;
+  }
+  return el;
 }
-function zoneNote(z){
- if(z.note)return z.note;
- var m={path:"Woodchip over membrane. Never needs mowing.",shed:"6 × 4 ft maximum under Association rules.",
- butt:"Three 210 L. The only water source November to March.",hard:"Every barrow load lands here.",
- green:"Phacelia. Counts as cultivated at inspection.",tun:"4 × 2 m maximum. Never receives rain.",
- spud:"Open ground, no bed.",clear:"One metre fence break required by the tenancy.",
- comp:"Two pallet bays. Turn monthly.",fruit:"Rhubarb and currants.",bean:"Wigwams. Pick every 2–3 days.",
- poll:"Borage, phacelia, calendula. Pollination, not decoration."};
- return m[z.id]||"Growing bed, 2.4 × 1.2 m. Never walked on.";
+function txt(x, y, s, o){
+  o = o || {};
+  return '<text x="'+n(x)+'" y="'+n(y)+'"'
+    + ' font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"'
+    + ' font-size="'+(o.size || 9.5)+'"'
+    + ' fill="'+(o.fill || C.ink)+'"'
+    + (o.weight ? ' font-weight="'+o.weight+'"' : '')
+    + (o.anchor ? ' text-anchor="'+o.anchor+'"' : '')
+    + (o.spacing ? ' letter-spacing="'+o.spacing+'"' : '')
+    + (o.op ? ' opacity="'+o.op+'"' : '')
+    + (o.halo ? ' paint-order="stroke" stroke="'+C.sheet+'" stroke-width="3"'
+              + ' stroke-linejoin="round" stroke-opacity="0.82"' : '')
+    + (o.rotate !== undefined ? ' transform="rotate('+o.rotate+' '+n(x)+' '+n(y)+')"' : '')
+    + '>' + esc(s) + '</text>';
 }
-
-function draw(){
- var s=document.getElementById("map");s.innerHTML="";
- var c=document.getElementById("controls");c.innerHTML="";
- var k=document.getElementById("key");k.innerHTML="";
- var nt=document.getElementById("notes");nt.innerHTML="";
-
- if(cur==="layout"){base(s,false);
-  info("Layout","11.4 × 11.4 m · 129.8 m²","Tap any area for what it is, why it is there, and what is growing in it now.");
-  return;}
- if(cur==="sun")return drawSun(s,c,k,nt);
- if(cur==="weed")return drawWeed(s,c,k,nt);
- if(cur==="trouble")return drawTrouble(s,c,k,nt);
- if(cur==="water")return drawWater(s,c,k,nt);
- if(cur==="rot")return drawRot(s,c,k,nt);
- if(cur==="nbr")return drawNbr(s,c,k,nt);
+/* monospace runs about 0.6em per character — used to drop labels that would
+   overflow their box and collide with the next zone along. */
+function textW(s, size){ return s.length * 0.6 * size; }
+function fitSize(s, boxW, pad){
+  var sizes = [9, 8, 7], i;
+  for(i = 0; i < sizes.length; i++){
+    if(textW(s, sizes[i]) + pad <= boxW) return sizes[i];
+  }
+  return 0;
 }
 
-function heat(s,g,ramp,onTap){
- for(var i=0;i<GN;i++)for(var j=0;j<GN;j++){
-  var v=g[i][j];if(v<=0.001)continue;
-  var col=ramp(v);
-  var r=E("rect",{x:PX(i*GC),y:PY((j+1)*GC),width:GC*S+0.6,height:GC*S+0.6,fill:col.f,"fill-opacity":col.o,"class":"pin"});
-  (function(vv,ii,jj){r.addEventListener("click",function(){onTap(vv,ii,jj);});})(v,i,j);
-  s.appendChild(r);
- }
+/* ------------------------------------------------------------ solar geometry */
+var D2R = Math.PI / 180;
+
+function sunPos(decDeg, solarTime){
+  var dec = decDeg * D2R, lat = LAT * D2R;
+  var H = (15 * (solarTime - 12)) * D2R;
+  var sinAlt = Math.sin(lat) * Math.sin(dec) + Math.cos(lat) * Math.cos(dec) * Math.cos(H);
+  var alt = Math.asin(Math.max(-1, Math.min(1, sinAlt))) / D2R;
+  var az = 180 + Math.atan2(Math.sin(H),
+             Math.cos(H) * Math.sin(lat) - Math.tan(dec) * Math.cos(lat)) / D2R;
+  az = ((az % 360) + 360) % 360;
+  return {alt: alt, az: az};
 }
 
-function drawSun(s,c,k,nt){
- if(sgMonth!==month){SG=sunHours(MDAY[month]);sgMonth=month;}
- base(s,true);
- var mx=Math.max.apply(null,SG.map(function(r){return Math.max.apply(null,r);}))||1;
- heat(s,SG,function(v){var t=v/mx;return {f:t>0.75?"#FFD166":t>0.5?"#D9A94A":t>0.25?"#7E7040":"#2E3A34",o:0.78};},
-  function(v){info("Direct sun here",v.toFixed(1)+" hours on "+MNAME[month]+" 15th",
-   v>=6?"Full sun. Anything will grow here.":v>=4?"Good light. Fine for most crops, though fruiting plants prefer more.":
-   v>=2?"Part shade. Leafy crops and soft fruit cope; tomatoes and courgettes won't be happy.":"Deep shade. Compost, storage or perennials only.");});
+/* screen vector for a compass bearing, given the plot's facing bearing */
+function vec(t){
+  var a = (t - state.bearing) * D2R;
+  return [Math.sin(a), -Math.cos(a)];
+}
 
- var sun=solar(MDAY[month],hour),sv=shadowVec(sun);
- if(sv){
-  Z.concat([WOOD]).forEach(function(z){
-   var p=shadowPoly(z,sv);if(!p)return;
-   s.appendChild(E("polygon",{points:p.map(function(q){return PX(q[0])+","+PY(q[1]);}).join(" "),
-    fill:"#0A0F0D","fill-opacity":0.55,stroke:"none"}));
+function hull(pts){
+  var p = pts.slice().sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
+  if(p.length < 3) return p;
+  function cross(o,a,b){ return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]); }
+  var lo = [], up = [], i;
+  for(i = 0; i < p.length; i++){
+    while(lo.length >= 2 && cross(lo[lo.length-2], lo[lo.length-1], p[i]) <= 0) lo.pop();
+    lo.push(p[i]);
+  }
+  for(i = p.length - 1; i >= 0; i--){
+    while(up.length >= 2 && cross(up[up.length-2], up[up.length-1], p[i]) <= 0) up.pop();
+    up.push(p[i]);
+  }
+  lo.pop(); up.pop();
+  return lo.concat(up);
+}
+
+/* ------------------------------------------------------------------- render */
+function render(){
+  document.getElementById("plotClipRect").setAttribute("x", X(0));
+  document.getElementById("plotClipRect").setAttribute("y", Y(0));
+  document.getElementById("plotClipRect").setAttribute("width", PW * SCALE);
+  document.getElementById("plotClipRect").setAttribute("height", PD * SCALE);
+  drawBase();
+  drawZones();
+  drawRotation();
+  drawRules();
+  drawHaulage();
+  drawWater();
+  drawShade();
+  drawEdges();
+  drawFurniture();
+  drawDetail();
+}
+
+/* --- base: paper, plot ground, woodland band ---------------------------- */
+function drawBase(){
+  var s = "";
+  s += '<rect x="0" y="0" width="800" height="820" fill="'+C.sheet+'"/>';
+  s += '<rect x="'+X(0)+'" y="'+Y(0)+'" width="'+(PW*SCALE)+'" height="'+(PD*SCALE)+'" fill="#E1E5DA"/>';
+  s += '<rect x="'+X(0)+'" y="'+(Y(0)-26)+'" width="'+(PW*SCALE)+'" height="26" fill="url(#hatchWood)"/>';
+  s += txt(X(0), Y(0)-32, "WOODLAND — CANOPY ASSUMED " + state.canopy + " m",
+           {size:9.5, weight:"600", spacing:"0.14em", fill:"#55632F"});
+  s += txt(X(PW/2), 20, "NO STRUCTURE WITHOUT WRITTEN COMMITTEE CONSENT",
+           {size:9, weight:"600", spacing:"0.16em", fill:C.oxide, anchor:"middle", halo:1});
+  paint("lyr-base", s);
+}
+
+/* --- zones -------------------------------------------------------------- */
+function drawZones(){
+  var g = document.getElementById("lyr-zones");
+  g.style.display = on.zones ? "" : "none";
+  if(!on.zones){ paint("lyr-zones", ""); return; }
+
+  var s = "";
+  ZONES.forEach(function(z){
+    var k = KIND[z.k];
+    var px = X(z.x), py = Y(z.y), pw = z.w * SCALE, ph = z.h * SCALE;
+    var isSel = state.sel === z.id;
+    var stroke = isSel ? C.oxide : (z.k === "infra" ? C.struct : C.ink);
+    var sw = isSel ? 2.6 : (z.k === "infra" ? 1.6 : 0.8);
+    var area = (z.w * z.h).toFixed(1);
+
+    s += '<rect data-zone="'+esc(z.id)+'" class="zone"'
+       + ' x="'+n(px)+'" y="'+n(py)+'" width="'+n(pw)+'" height="'+n(ph)+'"'
+       + ' fill="'+k.fill+'" fill-opacity="'+(z.k === "infra" ? 0 : k.op)+'"'
+       + ' stroke="'+stroke+'" stroke-width="'+sw+'"'
+       + (z.k === "infra" ? ' stroke-dasharray="7 4"' : '')
+       + ' tabindex="0" role="button"'
+       + ' aria-label="'+esc(z.name + ", " + z.w + " by " + z.h + " metres, " + area + " square metres")+'"'
+       + ' style="cursor:pointer"/>';
+
+    if(z.k === "infra"){
+      s += txt(px + 2, py - 6, z.name.toUpperCase(), {size:8.5, weight:"600", spacing:"0.1em", fill:C.struct});
+      return;
+    }
+    // beds are labelled by the rotation layer when it is on
+    if(z.k === "bed" && on.rotation) return;
+
+    var lab = area + " m²";
+    if(ph >= 26){
+      var fs = fitSize(z.name, pw, 12);
+      if(fs){
+        s += txt(px + 6, py + 14, z.name, {size:fs, fill:C.ink});
+        if(textW(z.name, fs) + textW(lab, 8.5) + 22 <= pw){
+          s += txt(px + pw - 6, py + 14, lab, {size:8.5, fill:C.inkSoft, anchor:"end"});
+        }
+      }
+    } else if(z.name !== "Path" && fitSize(z.name, pw, 12) === 9){
+      s += txt(px + 6, py + ph/2 + 3.2, z.name, {size:8, fill:C.inkSoft});
+    }
   });
- }
- base2(s);
-
- c.innerHTML='<label>Month — <span class="readout">'+MNAME[month]+'</span></label>'+
-  '<input type="range" id="ms" min="0" max="11" value="'+month+'">'+
-  '<label>Time of day — <span class="readout">'+fmtH(hour)+'</span></label>'+
-  '<input type="range" id="hs" min="4" max="21" step="0.5" value="'+hour+'">';
- document.getElementById("ms").oninput=function(){month=+this.value;draw();};
- document.getElementById("hs").oninput=function(){hour=+this.value;draw();};
-
- k.innerHTML='<span><i style="background:#FFD166"></i>6 hrs +</span><span><i style="background:#D9A94A"></i>4–6 hrs</span>'+
-  '<span><i style="background:#7E7040"></i>2–4 hrs</span><span><i style="background:#2E3A34"></i>under 2 hrs</span>'+
-  '<span><i style="background:#0A0F0D"></i>shadow right now</span>';
-
- var alt=sun.altDeg;
- nt.innerHTML='<p style="margin-top:12px"><span class="readout">Sun altitude '+alt.toFixed(0)+'°, bearing '+sun.azDeg.toFixed(0)+'°.</span> '+
-  (alt<=0?'The sun is below the horizon at this time in '+MNAME[month]+'.':
-   'Shadow length is about '+(1/Math.tan(sun.alt)).toFixed(1)+'× the height of anything casting it. '+
-   'Your polytunnel is 2 m tall, so it throws roughly '+(2/Math.tan(sun.alt)).toFixed(1)+' m right now.')+'</p>'+
-  '<p>Colour shows total direct sun across the whole day. The dark overlay is the shadow at the moment you have selected.</p>';
- info("Sun and shade","Modelled for "+LAT.toFixed(2)+"°N","Tap any coloured square for how many hours of direct sun it gets on this date.");
+  paint("lyr-zones", s);
+  bindZones();
 }
-function base2(s){
- Z.forEach(function(z){s.appendChild(E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,
-  fill:"none",stroke:"#FFF","stroke-opacity":0.28,"stroke-width":1}));});
- s.appendChild(E("rect",{x:PX(0),y:PY(D),width:W*S,height:D*S,fill:"none",stroke:"#FFF","stroke-width":1.5}));
-}
-function fmtH(h){var hh=Math.floor(h),mm=(h-hh)*60;return (hh<10?"0":"")+hh+":"+(mm?"30":"00");}
 
-function drawWeed(s,c,k,nt){
- base(s,true);
- heat(s,WG,function(v){return {f:v>0.7?"#C98BE0":v>0.45?"#8E5FA8":"#4A3A57",o:0.8};},
-  function(v,i,j){
-   var x=(i+0.5)*GC,y=(j+0.5)*GC,r=[];
-   if(W-x<4.5)r.push("seed blowing in from the woodland on the SE side");
-   if(Math.min(x,W-x,y,D-y)<1.2)r.push("grass creeping in from the plot edge");
-   if(x<2.2)r.push("path and hardstanding edge");
-   if(Math.hypot(x-9.9,y-8.1)<2.0)r.push("close to the compost bays");
-   Z.forEach(function(z){if((z.id==="spud"||z.id==="green"||z.id==="green2")&&x>=z.x&&x<=z.x+z.w&&y>=z.y&&y<=z.y+z.d)r.push("bare or thinly covered ground");});
-   info(v>0.7?"High weed pressure":v>0.45?"Moderate weed pressure":"Low weed pressure",
-    "Score "+(v*100).toFixed(0)+"/100 · "+x.toFixed(1)+" m across, "+y.toFixed(1)+" m up",
-    (r.length?"Driven by: "+r.join(", ")+". ":"Well covered and away from the edges. ")+
-    (v>0.7?"Expect to weed this every visit through spring. Mulch heavily or keep it under membrane.":
-     v>0.45?"Worth a look on every visit, but it should not get away from you.":
-     "The 20-minute arrival weed should keep on top of this."));
+function bindZones(){
+  var nodes = document.querySelectorAll("#lyr-zones .zone");
+  Array.prototype.forEach.call(nodes, function(el){
+    var id = el.getAttribute("data-zone");
+    el.addEventListener("click", function(){ select(id); });
+    el.addEventListener("keydown", function(e){
+      if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){
+        e.preventDefault();
+        select(id);
+      }
+    });
   });
- base2(s);
- k.innerHTML='<span><i style="background:#C98BE0"></i>High</span><span><i style="background:#8E5FA8"></i>Moderate</span><span><i style="background:#4A3A57"></i>Low</span>';
- nt.innerHTML='<h2>How this is worked out</h2>'+
-  '<p><strong style="color:var(--sun)">Seed rain from the woodland.</strong> Birch and willow seed blows in all season. It falls off sharply beyond about four metres.</p>'+
-  '<p><strong style="color:var(--sun)">Grass creeping in from the edges.</strong> The commonest weed on any allotment is the grass already growing round it.</p>'+
-  '<p><strong style="color:var(--sun)">Bare ground.</strong> Weed seed only germinates in light. The potato block and green manure strip are exposed until the crop knits over.</p>'+
-  '<p><strong style="color:var(--sun)">The compost bays.</strong> Anything that goes in already seeding comes back out spread across the beds.</p>'+
-  '<p style="margin-top:14px">Log where you actually weed (<code>plot weeds --observe</code>) and the prediction is progressively replaced by observation.</p>';
- info("Weed pressure","Predicted, corrected by observation","Tap a square to see what drives the pressure there.");
 }
 
-function drawTrouble(s,c,k,nt){
- base(s,true);base2(s);
- PINS.forEach(function(p){
-  var g=E("g",{"class":"pin"});
-  g.appendChild(E("circle",{cx:PX(p.x),cy:PY(p.y),r:13,fill:p.c,"fill-opacity":0.22}));
-  g.appendChild(E("circle",{cx:PX(p.x),cy:PY(p.y),r:7,fill:p.c,stroke:"#111917","stroke-width":1.5}));
-  g.addEventListener("click",function(){
-   info(p.t,"Risk: "+p.w,p.d+"<br><br><strong style='color:var(--sun)'>What to do:</strong> "+p.a);
+function select(id){
+  state.sel = (state.sel === id) ? null : id;
+  drawZones();
+  drawRotation();
+  drawDetail();
+}
+
+/* --- rotation ----------------------------------------------------------- */
+function groupFor(z){ return GROUPS[(z.rot + (state.year - 1)) % 4]; }
+
+function drawRotation(){
+  var g = document.getElementById("lyr-rotation");
+  g.style.display = on.rotation ? "" : "none";
+  if(!on.rotation){ paint("lyr-rotation", ""); return; }
+
+  var s = "";
+  ZONES.filter(function(z){ return z.k === "bed"; }).forEach(function(z){
+    var grp = groupFor(z);
+    var px = X(z.x), py = Y(z.y), pw = z.w * SCALE, ph = z.h * SCALE;
+    s += '<rect x="'+n(px)+'" y="'+n(py)+'" width="'+n(pw)+'" height="'+n(ph)+'"'
+       + ' fill="'+grp.fill+'" fill-opacity="0.5" pointer-events="none"/>';
+    s += txt(px + 6, py + 15, z.sid + " · " + grp.name.toUpperCase(),
+             {size:9, weight:"600", spacing:"0.05em", fill:"#0E2320"});
+    s += txt(px + pw - 6, py + 15, (z.w * z.h).toFixed(1) + " m²",
+             {size:8.5, fill:"#0E2320", op:"0.62", anchor:"end"});
   });
-  s.appendChild(g);
- });
- k.innerHTML='<span><i style="background:#C98BE0"></i>Pests & weeds</span><span><i style="background:#B87333"></i>Ground & mud</span>'+
-  '<span><i style="background:#6FB3C9"></i>Weather</span><span><i style="background:#FF8B7E"></i>Birds</span><span><i style="background:#FFD166"></i>Water</span>';
- nt.innerHTML='<p style="margin-top:12px">Derived from the plot\'s shape, aspect and surroundings. As you log real problems, add pins here so the map becomes observed rather than predicted.</p>';
- info("Trouble spots",PINS.length+" marked","Tap any pin. Each explains why that spot is a problem and what to do about it.");
+  paint("lyr-rotation", s);
 }
 
-function drawWater(s,c,k,nt){
- base(s,true);
- [10,20,30].forEach(function(r,i){
-  s.appendChild(E("circle",{cx:PX(TAP.x),cy:PY(TAP.y),r:r*S,fill:"none",stroke:"#6FB3C9",
-   "stroke-opacity":0.5-i*0.12,"stroke-width":1.4,"stroke-dasharray":"5 4"}));
- });
- s.appendChild(E("rect",{x:PX(W-2.0),y:PY(D),width:2.0*S,height:D*S,fill:"#FFD166","fill-opacity":0.16}));
- var t=Z.filter(function(z){return z.id==="tun";})[0];
- if(t){s.appendChild(E("rect",{x:PX(t.x),y:PY(t.y+t.d),width:t.w*S,height:t.d*S,fill:"#FFD166","fill-opacity":0.4}));}
- base2(s);
- s.appendChild(E("circle",{cx:PX(TAP.x),cy:PY(TAP.y),r:8,fill:"none",stroke:"#6FB3C9","stroke-width":2.5}));
- T(s,PX(TAP.x),PY(TAP.y)-16,"TAP",{mono:1,s:10,fill:"#6FB3C9"});
- if(t)T(s,PX(t.x+t.w/2),PY(t.y+t.d/2),"ALWAYS",{mono:1,s:9.5,ls:"0.1em",fill:"#111917"});
- T(s,PX(W-1.0),PY(D/2),"DRY — ROOTS",{mono:1,s:9.5,ls:"0.1em",fill:"#111917"});
- k.innerHTML='<span><i style="background:#6FB3C9"></i>Hose reach 10/20/30 m</span><span><i style="background:#FFD166"></i>Needs water regardless of rain</span>';
- nt.innerHTML='<h2>Watering notes</h2>'+
-  '<p><strong style="color:var(--sun)">Buy 30 m of hose, not 20.</strong> The tap is 20 m from the plot boundary.</p>'+
-  '<p><strong style="color:var(--sun)">The tunnel never gets rain.</strong> Water it March to October whatever the sky is doing.</p>'+
-  '<p><strong style="color:var(--sun)">The strip along the treeline is permanently dry.</strong> Soft fruit copes; annuals do not.</p>'+
-  '<p><strong style="color:var(--sun)">The tap is off November to March</strong>, and the Committee can impose a hosepipe ban at any time. Fill every butt in October.</p>';
- info("Watering","Tap 20 m from the plot","The rings show hose reach. Gold areas need water regardless of rainfall.");
+/* --- site rules --------------------------------------------------------- */
+function drawRules(){
+  var g = document.getElementById("lyr-rules");
+  g.style.display = on.rules ? "" : "none";
+  if(!on.rules){ paint("lyr-rules", ""); return; }
+
+  var s = "";
+  // low-crop strip, first 1.5 m inside the fence, full bed depth
+  var lx = X(0.6), ly = Y(2.5), lw = 1.5 * SCALE, lh = 6.8 * SCALE;
+  s += '<rect x="'+n(lx)+'" y="'+n(ly)+'" width="'+n(lw)+'" height="'+n(lh)+'"'
+     + ' fill="'+C.oxide+'" fill-opacity="0.07" stroke="'+C.oxide+'"'
+     + ' stroke-width="1.3" stroke-dasharray="6 4" pointer-events="none"/>';
+  s += txt(lx + lw - 9, ly + lh/2, "LOW CROPS ONLY — 1.5 m — SHADE FALLS THIS WAY",
+           {size:8.5, weight:"600", spacing:"0.1em", fill:C.oxide, anchor:"middle", rotate:-90, halo:1});
+
+  // tunnel dimension line
+  var dy = Y(2.44);
+  s += '<line x1="'+n(X(7.0))+'" y1="'+n(dy)+'" x2="'+n(X(11.0))+'" y2="'+n(dy)+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="1.2"/>';
+  s += '<line x1="'+n(X(7.0))+'" y1="'+n(dy-4)+'" x2="'+n(X(7.0))+'" y2="'+n(dy+4)+'" stroke="'+C.oxide+'" stroke-width="1.2"/>';
+  s += '<line x1="'+n(X(11.0))+'" y1="'+n(dy-4)+'" x2="'+n(X(11.0))+'" y2="'+n(dy+4)+'" stroke="'+C.oxide+'" stroke-width="1.2"/>';
+  s += txt(X(9.0), dy - 6, "4.0 m — AT SITE CAP",
+           {size:8.5, weight:"600", spacing:"0.08em", fill:C.oxide, anchor:"middle", halo:1});
+
+  // shed cap — sits on the same line as the infra block label, left of it
+  s += txt(X(6.85), Y(0.7) - 6, "SHED 1.83 × 1.22 m — AT CAP",
+           {size:8.5, weight:"600", spacing:"0.06em", fill:C.oxide, anchor:"end", halo:1});
+
+  // side buffers
+  s += txt(X(PW/2), Y(4.7) + 4.5, "600 mm CLEAR OF BOTH SIDE BOUNDARIES",
+           {size:8.5, weight:"600", spacing:"0.12em", fill:C.oxide, anchor:"middle", halo:1});
+
+  // barrow route down the spine
+  s += txt(X(5.85), Y(7.6), "700 mm BARROW ROUTE",
+           {size:8.5, weight:"600", spacing:"0.1em", fill:C.inkSoft, anchor:"middle", rotate:-90, halo:1});
+
+  paint("lyr-rules", s);
 }
 
-function drawRot(s,c,k,nt){
- base(s,true);
- var r=rotationFor(rotYear);
- Z.forEach(function(z){
-  if(!r[z.id])return;
-  var col=r[z.id].indexOf("Potato")>-1?"#8B6F9E":r[z.id].indexOf("Green")>-1?"#3E5B3A":
-   r[z.id].indexOf("Onion")>-1?"#C9A227":r[z.id].indexOf("Kale")>-1?"#4E8C6A":
-   r[z.id].indexOf("Beetroot")>-1?"#B0453F":"#7BA05B";
-  s.appendChild(E("rect",{x:PX(z.x),y:PY(z.y+z.d),width:z.w*S,height:z.d*S,fill:col,"fill-opacity":0.8,stroke:col}));
-  var lines=r[z.id].split(" & ");
-  lines.forEach(function(ln,li){
-   T(s,PX(z.x+z.w/2),PY(z.y+z.d/2)+(li-(lines.length-1)/2)*12,ln.toUpperCase(),{s:9,bl:"middle"});});
- });
- base2(s);
- c.innerHTML='<label>Year</label><div class="layers" id="ry"></div>';
- var ry=document.getElementById("ry");
- [1,2,3,4].forEach(function(y){
-  var b=document.createElement("button");b.className="btn"+(rotYear===y?" sel":"");b.textContent="Year "+y;
-  b.onclick=function(){rotYear=y;draw();};ry.appendChild(b);
- });
- k.innerHTML='<span><i style="background:#C9A227"></i>Alliums</span><span><i style="background:#B0453F"></i>Roots & leaves</span>'+
-  '<span><i style="background:#4E8C6A"></i>Brassicas</span><span><i style="background:#7BA05B"></i>Cucurbits & salad</span>'+
-  '<span><i style="background:#8B6F9E"></i>Potatoes</span><span><i style="background:#3E5B3A"></i>Green manure</span>';
- nt.innerHTML='<p style="margin-top:12px">Four groups move round one bed a year, so no family returns to the same soil within four years. Potatoes and the green manure strip swap places.</p>';
- info("Crop rotation","Year "+rotYear+" of 4","Tap through the years. Never plant the same family back within three years.");
+/* --- haulage ------------------------------------------------------------ */
+function drawHaulage(){
+  var g = document.getElementById("lyr-haulage");
+  g.style.display = on.haulage ? "" : "none";
+  if(!on.haulage){ paint("lyr-haulage", ""); return; }
+
+  var pts = [[GATE_MID, PD], [GATE_MID, 2.3], [0.85, 2.3], [11.0, 2.3]];
+  var d = pts.map(function(p, i){
+    return (i ? "L" : "M") + n(X(p[0])) + " " + n(Y(p[1]));
+  }).join(" ");
+
+  var s = "";
+  s += '<path d="'+d+'" fill="none" stroke="#8B6A3F" stroke-width="7"'
+     + ' stroke-opacity="0.32" stroke-linecap="round" stroke-linejoin="round"/>';
+  s += '<path d="'+d+'" fill="none" stroke="#8B6A3F" stroke-width="1.6"'
+     + ' stroke-dasharray="8 5" stroke-linecap="round"/>';
+  s += txt(X(GATE_MID) + 12, Y(9.2), "BARROW RUN · ~76 LOADS · 4–7 HRS",
+           {size:8.5, weight:"600", spacing:"0.08em", fill:"#6B4F2A", halo:1});
+  s += txt(X(GATE_MID) + 12, Y(9.2) + 13, "car park distance still unmeasured",
+           {size:8.5, weight:"600", fill:"#C2622A", halo:1});
+  paint("lyr-haulage", s);
 }
 
-function drawNbr(s,c,k,nt){
- base(s,true);
- s.appendChild(E("rect",{x:PX(0),y:PY(D),width:6.0*S,height:D*S,fill:"#FF8B7E","fill-opacity":0.13}));
- s.appendChild(E("line",{x1:PX(6.0),y1:PY(0),x2:PX(6.0),y2:PY(D),stroke:"#FF8B7E","stroke-width":2,"stroke-dasharray":"6 4"}));
- var sun=solar(80,8),sv=shadowVec(sun);
- Z.forEach(function(z){
-  var p=shadowPoly(z,sv);if(!p)return;
-  s.appendChild(E("polygon",{points:p.map(function(q){return PX(q[0])+","+PY(q[1]);}).join(" "),
-   fill:"#FF8B7E","fill-opacity":0.42,stroke:"#FF8B7E","stroke-opacity":0.7}));
- });
- base2(s);
- T(s,PX(3.0),PY(D/2),"NO TALL STRUCTURES",{s:11,fill:"#FF8B7E"});
- T(s,PX(3.0),PY(D/2)-15,"within 6 m of the boundary",{s:9.5,fill:"#FF8B7E",mono:1});
- k.innerHTML='<span><i style="background:#FF8B7E;opacity:.4"></i>Exclusion band — 6 m</span><span><i style="background:#FF8B7E"></i>Shadow at 08:00, 21 March</span>';
- nt.innerHTML='<h2>Why the tall things moved</h2>'+
-  '<p>The Association must approve polytunnel placement specifically to stop plots shading each other, so this is a condition of permission, not just good manners.</p>'+
-  '<p>A 2 m tunnel throws a shadow <strong style="color:var(--sun)">up to 6 m toward the north-west at 8am in March and September</strong> — exactly when your neighbour is starting seedlings.</p>'+
-  '<p><strong style="color:var(--sun)">The fix costs nothing.</strong> Every tall structure sits in the south-east half against the woodland, where the shadows land on ground the trees already shade.</p>'+
-  '<p style="color:var(--sun)"><strong>Worth putting this drawing in the permission application.</strong></p>';
- info("Neighbour shading","Boundary on the north-west","Red band is the 6 m no-tall-structures zone. Red shapes are worst-case shadows at 8am on 21 March.");
+/* --- water -------------------------------------------------------------- */
+function drawWater(){
+  var g = document.getElementById("lyr-water");
+  g.style.display = on.water ? "" : "none";
+  if(!on.water){ paint("lyr-water", ""); return; }
+
+  var gx = X(GATE_MID), gy = Y(PD), r = 10 * SCALE;
+  var s = "";
+  s += '<g clip-path="url(#plotClip)">';
+  s += '<circle cx="'+n(gx)+'" cy="'+n(gy)+'" r="'+n(r)+'" fill="'+C.water+'"'
+     + ' fill-opacity="0.10" stroke="'+C.water+'" stroke-width="1.6" stroke-dasharray="7 5"/>';
+  s += '</g>';
+  s += txt(gx, gy - r + 15, "40 m hose stops here",
+           {size:9, weight:"600", spacing:"0.06em", fill:C.water, anchor:"middle", halo:1});
+
+  [[0.9, 0.9], [10.8, 0.9]].forEach(function(p){
+    var cx = X(p[0]), cy = Y(p[1]);
+    s += '<circle cx="'+n(cx)+'" cy="'+n(cy)+'" r="16" fill="'+C.oxide+'"'
+       + ' fill-opacity="0.13" stroke="'+C.oxide+'" stroke-width="1.6"/>';
+    s += txt(cx, cy + 30, "OUT OF REACH",
+             {size:8, weight:"600", spacing:"0.1em", fill:C.oxide, anchor:"middle", halo:1});
+  });
+
+  // standpipe callout below the gate
+  s += '<line x1="'+n(gx)+'" y1="700" x2="'+n(gx)+'" y2="'+n(gy + 8)+'"'
+     + ' stroke="'+C.water+'" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow)"/>';
+  s += txt(330, 716, "STANDPIPE 30 m — OFF NOV–MAR",
+           {size:9, weight:"600", spacing:"0.08em", fill:C.water, anchor:"middle"});
+  paint("lyr-water", s);
 }
 
-document.getElementById("theme").onclick=function(){
- document.body.classList.toggle("light");
- this.textContent=document.body.classList.contains("light")?"Dark":"Light";};
+/* --- sun & shade -------------------------------------------------------- */
+function drawShade(){
+  var g = document.getElementById("lyr-shade");
+  g.style.display = on.shade ? "" : "none";
+  if(!on.shade){ paint("lyr-shade", ""); state.spill = 0; updateShadeUI(null); return; }
 
-paintNav();paintLayers();draw();
+  var sun = sunPos(state.dec, state.time);
+  var s = "", spill = 0;
+
+  if(sun.alt <= 0.5){
+    paint("lyr-shade", txt(X(PW/2), Y(PD/2), "SUN BELOW THE HORIZON",
+      {size:12, weight:"600", spacing:"0.18em", fill:C.inkSoft, anchor:"middle"}));
+    state.spill = 0;
+    updateShadeUI(sun);
+    return;
+  }
+
+  var dir = vec((sun.az + 180) % 360);
+  var tanAlt = Math.tan(sun.alt * D2R);
+
+  s += '<g clip-path="url(#plotClip)">';
+  STRUCTS.forEach(function(st){
+    var height = (st.ht === null) ? state.canopy : st.ht;
+    var len = Math.min(60, height / tanAlt);
+    var dx = dir[0] * len, dy = dir[1] * len;
+    var base = [
+      [st.x, st.y], [st.x + st.w, st.y],
+      [st.x + st.w, st.y + st.h], [st.x, st.y + st.h]
+    ];
+    var pts = base.concat(base.map(function(p){ return [p[0] + dx, p[1] + dy]; }));
+    var h = hull(pts);
+    if(h.length < 3) return;
+
+    if(st.mine){
+      h.forEach(function(p){
+        if(p[0] < 0 && p[1] >= 0 && p[1] <= PD) spill = Math.max(spill, -p[0]);
+      });
+    }
+
+    s += '<polygon points="'
+       + h.map(function(p){ return n(X(p[0])) + "," + n(Y(p[1])); }).join(" ")
+       + '" fill="url(#hatchShade)" stroke="'+C.ink+'" stroke-width="0.6"'
+       + ' stroke-opacity="0.28" pointer-events="none"/>';
+  });
+  s += '</g>';
+
+  // shadow direction arrow, drawn on the headland where nothing else sits
+  var ax = X(9.6), ay = Y(10.2), L = 40;
+  s += '<line x1="'+n(ax)+'" y1="'+n(ay)+'" x2="'+n(ax + dir[0]*L)+'" y2="'+n(ay + dir[1]*L)+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="1.6" marker-end="url(#arrowOx)"/>';
+  s += txt(ax, ay + 22, "shadows fall",
+           {size:8.5, weight:"600", fill:C.oxide, anchor:"middle", halo:1});
+
+  paint("lyr-shade", s);
+  state.spill = spill;
+  updateShadeUI(sun);
+}
+
+function updateShadeUI(sun){
+  var sr = document.getElementById("sunReadout");
+  var pr = document.getElementById("spillReadout");
+  var ps = document.getElementById("spillSub");
+  if(!on.shade){ return; }
+
+  if(!sun || sun.alt <= 0.5){
+    sr.textContent = "sun below the horizon";
+    pr.textContent = "no shadows to measure";
+    pr.className = "readout";
+    ps.textContent = "";
+    return;
+  }
+  sr.textContent = "altitude " + sun.alt.toFixed(1) + "° · azimuth " + sun.az.toFixed(0) + "°";
+  if(state.spill > 0.05){
+    pr.textContent = "shade over the fence: " + state.spill.toFixed(1) + " m";
+    pr.className = "readout warn";
+  } else {
+    pr.textContent = "nothing of yours crosses the fence";
+    pr.className = "readout";
+  }
+  ps.textContent = "Woodland canopy shadow is not counted — it is not yours.";
+}
+
+/* --- boundaries and gate ------------------------------------------------ */
+function drawEdges(){
+  var s = "";
+  var x0 = X(0), x1 = X(PW), y0 = Y(0), y1 = Y(PD);
+
+  // woodland edge
+  s += '<line x1="'+n(x0)+'" y1="'+n(y0)+'" x2="'+n(x1)+'" y2="'+n(y0)+'"'
+     + ' stroke="'+C.wood+'" stroke-width="3"/>';
+
+  // fenced neighbour
+  s += '<line x1="'+n(x0)+'" y1="'+n(y0)+'" x2="'+n(x0)+'" y2="'+n(y1)+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="3"/>';
+  for(var m = 0; m <= PD + 0.001; m += 0.55){
+    var yy = Y(Math.min(m, PD));
+    s += '<line x1="'+n(x0)+'" y1="'+n(yy)+'" x2="'+n(x0 - 9)+'" y2="'+n(yy + 9)+'"'
+       + ' stroke="'+C.oxide+'" stroke-width="1.2" stroke-opacity="0.8"/>';
+  }
+  s += txt(x0 - 26, Y(PD/2), "FENCED — NEIGHBOURING PLOT",
+           {size:9, weight:"600", spacing:"0.14em", fill:C.oxide, anchor:"middle", rotate:-90});
+
+  // right boundary, unconfirmed
+  s += '<line x1="'+n(x1)+'" y1="'+n(y0)+'" x2="'+n(x1)+'" y2="'+n(y1)+'"'
+     + ' stroke="'+C.inkSoft+'" stroke-width="2" stroke-dasharray="9 6"/>';
+  s += txt(x1 + 22, Y(PD/2), "BOUNDARY — NOT YET CONFIRMED",
+           {size:9, weight:"600", spacing:"0.14em", fill:C.inkSoft, anchor:"middle", rotate:90});
+
+  // bottom edge with a gap for the gate
+  s += '<line x1="'+n(x0)+'" y1="'+n(y1)+'" x2="'+n(X(GATE_X0))+'" y2="'+n(y1)+'"'
+     + ' stroke="'+C.ink+'" stroke-width="2.4"/>';
+  s += '<line x1="'+n(X(GATE_X1))+'" y1="'+n(y1)+'" x2="'+n(x1)+'" y2="'+n(y1)+'"'
+     + ' stroke="'+C.ink+'" stroke-width="2.4"/>';
+  s += '<line x1="'+n(X(GATE_X0))+'" y1="'+n(y1 - 7)+'" x2="'+n(X(GATE_X0))+'" y2="'+n(y1 + 7)+'"'
+     + ' stroke="'+C.ink+'" stroke-width="1.6"/>';
+  s += '<line x1="'+n(X(GATE_X1))+'" y1="'+n(y1 - 7)+'" x2="'+n(X(GATE_X1))+'" y2="'+n(y1 + 7)+'"'
+     + ' stroke="'+C.ink+'" stroke-width="1.6"/>';
+  s += txt(X(GATE_MID), y1 + 22, "GATE",
+           {size:10, weight:"600", spacing:"0.2em", fill:C.ink, anchor:"middle"});
+
+  paint("lyr-edges", s);
+}
+
+/* --- compass and title block -------------------------------------------- */
+function drawFurniture(){
+  var s = "";
+  var cx = OX - 64, cy = OY + 74, r = 29;
+
+  function pt(bearing, rad){
+    var v = vec(bearing);
+    return [cx + v[0] * rad, cy + v[1] * rad];
+  }
+
+  s += '<circle cx="'+n(cx)+'" cy="'+n(cy)+'" r="'+r+'" fill="none"'
+     + ' stroke="'+C.inkSoft+'" stroke-width="1"/>';
+
+  // sun path arc across the south side
+  var a = pt(90, r - 7), b = pt(270, r - 7);
+  s += '<path d="M'+n(a[0])+' '+n(a[1])+' A '+(r-7)+' '+(r-7)+' 0 0 1 '+n(b[0])+' '+n(b[1])+'"'
+     + ' fill="none" stroke="'+C.sun+'" stroke-width="2" stroke-dasharray="3 3"/>';
+  var sth = pt(180, r - 15);
+  s += '<circle cx="'+n(sth[0])+'" cy="'+n(sth[1])+'" r="3" fill="'+C.sun+'"/>';
+
+  // ticks
+  [0, 90, 180, 270].forEach(function(t){
+    var p1 = pt(t, r - 4), p2 = pt(t, r);
+    s += '<line x1="'+n(p1[0])+'" y1="'+n(p1[1])+'" x2="'+n(p2[0])+'" y2="'+n(p2[1])+'"'
+       + ' stroke="'+C.inkSoft+'" stroke-width="1"/>';
+  });
+
+  // north arrow
+  var tip = pt(0, r - 3), tail = pt(180, r * 0.42);
+  var lw = pt(0, r - 12), l1 = pt(340, r - 8), l2 = pt(20, r - 8);
+  s += '<line x1="'+n(tail[0])+'" y1="'+n(tail[1])+'" x2="'+n(tip[0])+'" y2="'+n(tip[1])+'"'
+     + ' stroke="'+C.ink+'" stroke-width="1.6"/>';
+  s += '<polygon points="'+n(tip[0])+','+n(tip[1])+' '+n(l1[0])+','+n(l1[1])+' '
+     + n(lw[0])+','+n(lw[1])+' '+n(l2[0])+','+n(l2[1])+'" fill="'+C.ink+'"/>';
+  var np = pt(0, r + 13);
+  s += txt(np[0], np[1] + 3.4, "N", {size:11, weight:"700", fill:C.ink, anchor:"middle"});
+
+  s += txt(cx, cy + r + 18, "faces " + String(state.bearing).padStart(3, "0") + "°",
+           {size:9, weight:"600", spacing:"0.1em", fill:C.inkSoft, anchor:"middle"});
+
+  // ---- title block, bottom right
+  var tx0 = 470, tx1 = 782, mid = 578;
+  var rows = [
+    ["PLOT", PW + " × " + PD + " m"],
+    ["AREA", "125.2 m²"],
+    ["GROWING", "49.2 m²"],
+    ["SCALE", "1:20"],
+    ["LAT", "52.7596°N"],
+    ["ORGANIC", "methods only"]
+  ];
+  var top = 646, hdr = 24, rh = 20;
+  var bot = top + hdr + rows.length * rh;
+
+  s += '<rect x="'+tx0+'" y="'+top+'" width="'+(tx1-tx0)+'" height="'+(bot-top)+'"'
+     + ' fill="none" stroke="'+C.ink+'" stroke-width="1.2"/>';
+  s += '<line x1="'+tx0+'" y1="'+(top+hdr)+'" x2="'+tx1+'" y2="'+(top+hdr)+'" stroke="'+C.ink+'" stroke-width="1.2"/>';
+  s += txt((tx0+tx1)/2, top + 16, "ALBERT VILLAGE ALLOTMENTS — FULL PLOT — V2",
+           {size:9, weight:"700", spacing:"0.1em", fill:C.ink, anchor:"middle"});
+  s += '<line x1="'+mid+'" y1="'+(top+hdr)+'" x2="'+mid+'" y2="'+bot+'" stroke="'+C.inkSoft+'" stroke-width="0.7"/>';
+
+  rows.forEach(function(row, i){
+    var ry = top + hdr + i * rh;
+    if(i > 0){
+      var thick = (i === 3);
+      s += '<line x1="'+tx0+'" y1="'+ry+'" x2="'+tx1+'" y2="'+ry+'"'
+         + ' stroke="'+(thick ? C.ink : C.inkSoft)+'" stroke-width="'+(thick ? 1.2 : 0.5)+'"'
+         + (thick ? '' : ' stroke-opacity="0.6"')+'/>';
+    }
+    s += txt(tx0 + 9, ry + 13.5, row[0], {size:8.5, weight:"600", spacing:"0.14em", fill:C.inkSoft});
+    s += txt(mid + 9, ry + 13.5, row[1], {size:9.5, weight:"600", fill:C.ink});
+  });
+
+  paint("lyr-furniture", s);
+}
+
+/* ------------------------------------------------------------ detail panel */
+function drawDetail(){
+  var body = document.getElementById("detailBody");
+  var z = null;
+  ZONES.forEach(function(q){ if(q.id === state.sel) z = q; });
+
+  if(!z){
+    body.innerHTML = '<p class="empty">Tap any area on the plan</p>';
+    return;
+  }
+
+  var h = "";
+  h += '<h3>' + esc(z.name) + '</h3>';
+  h += '<div class="meta">'
+     + esc(dim(z.w) + " × " + dim(z.h) + " m · " + (z.w * z.h).toFixed(1) + " m²") + '</div>';
+  h += '<p>' + esc(z.desc) + '</p>';
+
+  if(z.k === "bed"){
+    var grp = groupFor(z);
+    h += '<div class="grp">Year ' + state.year + ' — ' + esc(grp.name) + '</div>';
+    h += '<p>' + esc(grp.crops) + '</p>';
+    h += '<div class="grp">Companions</div>';
+    h += '<p>' + esc(grp.comp) + '</p>';
+  }
+  if(z.id === "tunnel"){
+    h += '<div class="grp">Not in the rotation</div>';
+    h += '<p>Tomatoes, all varieties, full season. Basil interplanted between every tomato plant. '
+       + 'French marigolds in pots at the tunnel ends — not in the ground, so they stay moveable.</p>';
+  }
+  body.innerHTML = h;
+}
+
+/* ---------------------------------------------------------------- panel UI */
+function buildToggles(){
+  var box = document.getElementById("toggles");
+  LAYERS.forEach(function(l){
+    var lab = document.createElement("label");
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = l.on;
+    cb.id = "tog-" + l.id;
+    cb.addEventListener("change", function(){
+      on[l.id] = cb.checked;
+      if(l.id === "shade"){
+        document.getElementById("shadeCard").classList.toggle("hidden", !cb.checked);
+      }
+      render();
+    });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(l.label));
+    box.appendChild(lab);
+  });
+}
+
+function buildSchedule(){
+  var t = document.getElementById("schedTable");
+  var h = "";
+  SCHEDULE.forEach(function(r){
+    h += '<tr><td>' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>';
+  });
+  h += '<tr class="tot"><td>Total</td><td>125.2 m²</td></tr>';
+  h += '<tr class="grow"><td>Growing — beds + tunnel</td><td>49.2 m²</td></tr>';
+  t.innerHTML = h;
+}
+
+function fmtTime(v){
+  var hh = Math.floor(v), mm = Math.round((v - hh) * 60);
+  return (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm;
+}
+
+function updateYearSub(){
+  var names = ["A", "1L", "2L", "3L"].map(function(sid){
+    var z = null;
+    ZONES.forEach(function(q){ if(q.sid === sid) z = q; });
+    return sid + " " + groupFor(z).name.split(" ")[0].replace("&", "and");
+  });
+  document.getElementById("yearSub").textContent = names.join(" · ");
+}
+
+function bindControls(){
+  document.getElementById("seasonBtns").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if(!b) return;
+    state.dec = parseFloat(b.getAttribute("data-dec"));
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    drawShade();
+  });
+
+  var slider = document.getElementById("timeSlider");
+  slider.addEventListener("input", function(){
+    state.time = parseFloat(slider.value);
+    document.getElementById("timeLabel").textContent = fmtTime(state.time);
+    drawShade();
+  });
+
+  document.getElementById("yearBtns").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if(!b) return;
+    state.year = parseInt(b.getAttribute("data-year"), 10);
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    drawRotation();
+    drawDetail();
+    updateYearSub();
+  });
+
+  var bi = document.getElementById("bearingInput");
+  bi.addEventListener("input", function(){
+    var v = parseInt(bi.value, 10);
+    if(isNaN(v)) return;
+    state.bearing = ((v % 360) + 360) % 360;
+    drawFurniture();
+    drawShade();
+  });
+
+  var ci = document.getElementById("canopyInput");
+  ci.addEventListener("input", function(){
+    var v = parseFloat(ci.value);
+    if(isNaN(v) || v <= 0) return;
+    state.canopy = v;
+    drawBase();
+    drawShade();
+  });
+}
+
+/* ------------------------------------------------- served-page integration */
+function buildNav(){
+  var el = document.getElementById("appnav");
+  if(!PLOT || !PLOT.nav || !PLOT.nav.length) return;
+  var here = window.location.pathname;
+  el.innerHTML = PLOT.nav.map(function(item){
+    return '<a href="' + esc(item[0]) + '"'
+         + (item[0] === here ? ' aria-current="page"' : '')
+         + '>' + esc(item[1]) + '</a>';
+  }).join("");
+  el.hidden = false;
+}
+
+/* The database still describes the plot the old map drew. Rather than pretend
+   the two agree, say so — and say which live overlays are missing because of
+   it. Silence here would read as "nothing is planted". */
+function checkAgainstDb(){
+  if(!PLOT || !PLOT.zones) return;
+  var drawn = {};
+  ZONES.forEach(function(z){ drawn[z.id] = 1; });
+  var shared = PLOT.zones.filter(function(z){ return drawn[z.id]; }).length;
+  if(shared === PLOT.zones.length) return;
+
+  var p = PLOT.plot || {};
+  var bits = [];
+  if(p.w && p.d && (p.w !== PW || p.d !== PD)){
+    bits.push("is " + p.w + " × " + p.d + " m");
+  }
+  if(p.bearing !== undefined && p.bearing !== DEFAULT_BEARING){
+    bits.push("faces " + String(p.bearing).padStart(3, "0") + "°");
+  }
+  if(p.lat !== undefined && p.lat !== LAT) bits.push("sits at " + p.lat + "°N");
+
+  var h = "";
+  h += "<p>This drawing is the V2 survey: " + PW + " × " + PD + " m, facing "
+     + String(DEFAULT_BEARING).padStart(3, "0") + "°, at " + LAT + "°N.</p>";
+  var share = (shared ? "only " + shared + " of its " + PLOT.zones.length
+                      : "none of its " + PLOT.zones.length)
+            + " zone names " + (shared === 1 ? "appears" : "appear") + " on this drawing";
+  h += "<p>The database still holds the earlier layout"
+     + (bits.length ? " — it " + bits.join(", ") : "")
+     + ", and " + share + ".</p>";
+  h += "<p>So plantings, trouble pins and the weed heat map are not drawn here: there is no "
+     + "honest way to place them on beds the database has never heard of. Reconcile the two "
+     + "before trusting either for spacing or spraying decisions.</p>";
+  document.getElementById("mismatchBody").innerHTML = h;
+  document.getElementById("mismatch").classList.remove("hidden");
+}
+
+/* -------------------------------------------------------------------- boot */
+buildNav();
+checkAgainstDb();
+buildToggles();
+buildSchedule();
+bindControls();
+updateYearSub();
+document.getElementById("timeLabel").textContent = fmtTime(state.time);
+render();
+
+})();
 </script>
 </body>
 </html>
