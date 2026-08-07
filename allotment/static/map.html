@@ -67,6 +67,17 @@ input[type=number]{width:100%;background:#122127;border:1px solid var(--rule);co
   margin:12px 0 4px;padding-top:9px;border-top:1px solid var(--rule)}
 #detail .empty{color:#8FA9A5}
 
+table.setout{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px;margin-top:2px}
+table.setout th{text-align:left;font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;
+  color:#7FA9A6;font-weight:600;padding:2px 0 4px}
+table.setout th+th,table.setout td+td{text-align:right}
+table.setout td{padding:3px 0;border-bottom:1px solid rgba(127,169,166,.12);color:#DCE8E5}
+table.setout td:first-child{color:#9FBAB6;font-family:var(--ui);font-size:12.5px}
+table.setout tr:last-child td{border-bottom:none}
+.datum{font-size:12px;color:#9FBAB6;margin-top:8px;border-left:2px solid var(--sun);padding-left:9px}
+body.light table.setout td{color:#14302E}
+body.light table.setout td:first-child,body.light .datum{color:#3E6360}
+
 table.sched{width:100%;border-collapse:collapse;font-size:13px}
 table.sched td{padding:3px 0;border-bottom:1px solid rgba(127,169,166,.12)}
 table.sched td+td{text-align:right;font-family:var(--mono);font-size:12px;color:#B7CFCB}
@@ -135,7 +146,16 @@ body.light .notice p{color:#5A2E24}
 }
 @media print{
   body{background:#fff;color:#000}
-  .panel,header .coords{display:none}
+  header .coords,nav#appnav,.toolbar{display:none}
+  /* The panel goes, except the peg schedule - that is the sheet you carry to
+     the plot, and it is no use left behind on the screen. */
+  .panel>.card:not(.print-keep){display:none}
+  .panel{width:100%;flex:none;max-height:none;overflow:visible;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+  main{display:block}
+  .card.print-keep{border:1px solid #999;background:#fff;break-inside:avoid;margin-top:14px}
+  .card.print-keep h2,.card.print-keep .sub,.card.print-keep .datum{color:#333}
+  .card.print-keep table.setout td,.card.print-keep table.setout th{color:#000}
   .sheet{box-shadow:none;padding:0}
   .wrap{padding:0;max-width:none}
 }
@@ -179,6 +199,9 @@ body.light .notice p{color:#5A2E24}
           <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#237E8C"/>
           </marker>
+          <marker id="tick" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <line x1="5" y1="1.5" x2="5" y2="8.5" stroke="#14302E" stroke-width="1.6"/>
+          </marker>
           <marker id="arrowOx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
             <path d="M0,0 L10,5 L0,10 z" fill="#A8432B"/>
           </marker>
@@ -193,6 +216,7 @@ body.light .notice p{color:#5A2E24}
         <g id="lyr-shade"></g>
         <g id="lyr-nbr"></g>
         <g id="lyr-trouble"></g>
+        <g id="lyr-setout"></g>
         <g id="lyr-edges"></g>
         <g id="lyr-furniture"></g>
       </svg>
@@ -275,6 +299,16 @@ body.light .notice p{color:#5A2E24}
     <div class="card">
       <h2>Area schedule</h2>
       <table class="sched" id="schedTable"></table>
+    </div>
+
+    <div class="card print-keep" id="pegCard">
+      <h2>Setting-out schedule</h2>
+      <p class="sub">Every zone, measured off the fenced boundary and the woodland
+        edge. Metres. Prints with the drawing.</p>
+      <table class="setout" id="pegTable"></table>
+      <p class="datum">Peg the four corners of each, then check both diagonals
+        match the figure. Nothing is dimensioned from the right-hand boundary
+        until it is confirmed.</p>
     </div>
 
     <div class="card">
@@ -425,9 +459,12 @@ var ZONES = [
   {id:"bed3L", name:"Bed 3 left",  x:0.6, y:8.1, w:4.9, h:1.2, k:"bed", rot:3, sid:"3L"},
   {id:"bed3R", name:"Bed 3 right", x:6.2, y:8.1, w:4.9, h:1.2, k:"bed", rot:3, sid:"3R"},
 
-  {id:"p1", name:"Path", x:0.6, y:6.1, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."},
-  {id:"p2", name:"Path", x:0.6, y:7.7, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."},
-  {id:"p3", name:"Path", x:0.6, y:9.3, w:10.5, h:0.4, k:"path", desc:"400 mm cross path between beds. Woodchip."}
+  {id:"p1", name:"Path (beds 1\u20132)", x:0.6, y:6.1, w:10.5, h:0.4, k:"path", minor:1,
+   desc:"400 mm cross path between beds. Woodchip."},
+  {id:"p2", name:"Path (beds 2\u20133)", x:0.6, y:7.7, w:10.5, h:0.4, k:"path", minor:1,
+   desc:"400 mm cross path between beds. Woodchip."},
+  {id:"p3", name:"Path (bed 3 to headland)", x:0.6, y:9.3, w:10.5, h:0.4, k:"path", minor:1,
+   desc:"400 mm cross path between beds. Woodchip."}
 ];
 
 ZONES.forEach(function(z){
@@ -792,6 +829,7 @@ function render(){
   drawShade();
   drawNbr();
   drawTrouble();
+  drawSetOut();
   drawEdges();
   drawFurniture();
   drawDetail();
@@ -856,7 +894,7 @@ function drawZones(){
           s += txt(px + pw - 6, py + 14, lab, {size:8.5, fill:C.inkSoft, anchor:"end"});
         }
       }
-    } else if(z.name !== "Path" && fitSize(z.name, pw, 12) === 9){
+    } else if(!z.minor && fitSize(z.name, pw, 12) === 9){
       s += txt(px + 6, py + ph/2 + 3.2, z.name, {size:8, fill:C.inkSoft});
     }
   });
@@ -882,6 +920,7 @@ function select(id){
   state.sel = (state.sel === id) ? null : id;
   drawZones();
   drawRotation();
+  drawSetOut();
   drawDetail();
 }
 
@@ -1151,7 +1190,7 @@ function drawHeat(){
   var nodes = document.querySelectorAll("#lyr-heat .cell");
   Array.prototype.forEach.call(nodes, function(el){
     var i = +el.getAttribute("data-i"), j = +el.getAttribute("data-j");
-    var act = function(){ state.sel = {cell:[i, j]}; drawZones(); drawRotation(); drawDetail(); };
+    var act = function(){ state.sel = {cell:[i, j]}; drawZones(); drawRotation(); drawSetOut(); drawDetail(); };
     el.addEventListener("click", act);
     el.addEventListener("keydown", function(e){
       if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
@@ -1197,7 +1236,7 @@ function drawTrouble(){
   var nodes = document.querySelectorAll("#lyr-trouble .pin");
   Array.prototype.forEach.call(nodes, function(el){
     var idx = +el.getAttribute("data-pin");
-    var act = function(){ state.sel = {pin:idx}; drawZones(); drawRotation(); drawDetail(); };
+    var act = function(){ state.sel = {pin:idx}; drawZones(); drawRotation(); drawSetOut(); drawDetail(); };
     el.addEventListener("click", act);
     el.addEventListener("keydown", function(e){
       if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
@@ -1246,6 +1285,79 @@ function drawNbr(){
            {size:8.5, weight:"600", fill:C.inkSoft, anchor:"middle", halo:1});
   paint("lyr-nbr", s);
   state.nbrWorst = worst;
+}
+
+/* --- setting out -------------------------------------------------------- */
+/* Everything is dimensioned off the fenced boundary (x = 0) and the woodland
+   edge (y = 0), because those are the two sides that have actually been
+   measured. The right-hand boundary is not confirmed, so nothing is set out
+   from it - peg to a line you are not sure of and the whole plot inherits the
+   error. */
+function f2(v){ return v.toFixed(2); }
+
+function setOut(z){
+  var d = Math.sqrt(z.w * z.w + z.h * z.h);
+  return {
+    x0:z.x, x1:z.x + z.w, y0:z.y, y1:z.y + z.h,
+    w:z.w, h:z.h, diag:d,
+    corners:[
+      ["fence · woodland", z.x,        z.y],
+      ["right · woodland", z.x + z.w,  z.y],
+      ["fence · gate",     z.x,        z.y + z.h],
+      ["right · gate",     z.x + z.w,  z.y + z.h]
+    ]
+  };
+}
+
+function selectedZone(){
+  var z = null;
+  if(typeof state.sel === "string") ZONES.forEach(function(q){ if(q.id === state.sel) z = q; });
+  return z;
+}
+
+/* A dimension line with end ticks and a haloed figure, the way it would be
+   drawn on paper. */
+function dimLine(ax, ay, bx, by, label, vertical){
+  var s = '';
+  s += '<line x1="'+n(ax)+'" y1="'+n(ay)+'" x2="'+n(bx)+'" y2="'+n(by)+'"'
+     + ' stroke="'+C.ink+'" stroke-width="1" marker-start="url(#tick)"'
+     + ' marker-end="url(#tick)"/>';
+  var mx = (ax + bx) / 2, my = (ay + by) / 2;
+  s += txt(vertical ? mx : mx, vertical ? my : my - 5, label,
+           {size:9, weight:"700", fill:C.ink, anchor:"middle", halo:1,
+            rotate: vertical ? -90 : undefined});
+  return s;
+}
+
+function drawSetOut(){
+  var g = document.getElementById("lyr-setout");
+  var z = selectedZone();
+  var show = !!z && state.heat === "none";
+  g.style.display = show ? "" : "none";
+  if(!show){ paint("lyr-setout", ""); return; }
+
+  var o = setOut(z), s = "";
+  var midY = Y(z.y + z.h / 2), midX = X(z.x + z.w / 2);
+
+  // offset from the fenced boundary to the near face
+  if(o.x0 > 0.02){
+    s += dimLine(X(0), midY, X(o.x0), midY, f2(o.x0), false);
+  }
+  // offset from the woodland edge to the near face
+  if(o.y0 > 0.02){
+    s += dimLine(midX, Y(0), midX, Y(o.y0), f2(o.y0), true);
+  }
+  // the sides themselves, set just outside the box
+  s += dimLine(X(o.x0), Y(o.y1) + 13, X(o.x1), Y(o.y1) + 13, f2(o.w), false);
+  s += dimLine(X(o.x1) + 13, Y(o.y0), X(o.x1) + 13, Y(o.y1), f2(o.h), true);
+
+  // the diagonal, which is what proves it square
+  s += '<line x1="'+n(X(o.x0))+'" y1="'+n(Y(o.y0))+'" x2="'+n(X(o.x1))+'" y2="'+n(Y(o.y1))+'"'
+     + ' stroke="'+C.ink+'" stroke-width="0.8" stroke-dasharray="4 3" stroke-opacity="0.65"/>';
+  s += txt(X(z.x + z.w / 2) + 6, Y(z.y + z.h / 2) - 6, "diag " + f2(o.diag),
+           {size:8.5, weight:"700", fill:C.ink, halo:1});
+
+  paint("lyr-setout", s);
 }
 
 /* --- boundaries and gate ------------------------------------------------ */
@@ -1397,8 +1509,35 @@ function drawDetail(){
     h += '<p>Tomatoes, all varieties, full season. Basil interplanted between every tomato plant. '
        + 'French marigolds in pots at the tunnel ends — not in the ground, so they stay moveable.</p>';
   }
+  h += settingOut(z);
   h += plantingsIn(z.id);
   body.innerHTML = h;
+}
+
+/* What you need standing on the plot with a tape: where the corners are,
+   measured off the two sides that exist, how long the sides run, and the
+   diagonal that tells you whether you have a rectangle or a parallelogram. */
+function settingOut(z){
+  var o = setOut(z);
+  var h = '<div class="grp">Setting out</div>';
+  h += '<table class="setout">';
+  h += '<tr><td>Along the fence</td><td>' + f2(o.w) + ' m</td></tr>';
+  h += '<tr><td>Woodland to gate</td><td>' + f2(o.h) + ' m</td></tr>';
+  h += '<tr><td>Diagonal, both ways</td><td>' + f2(o.diag) + ' m</td></tr>';
+  h += '</table>';
+  h += '<div class="grp">Corners</div>';
+  h += '<table class="setout"><tr><th>corner</th><th>from fence</th><th>from woodland</th></tr>';
+  o.corners.forEach(function(c){
+    h += '<tr><td>' + esc(c[0]) + '</td><td>' + f2(c[1]) + '</td><td>' + f2(c[2]) + '</td></tr>';
+  });
+  h += '</table>';
+  h += '<p class="datum">Measure off the fenced boundary and the woodland edge — '
+     + 'the two sides that have been measured. Not off the right-hand boundary: '
+     + 'it is unconfirmed, and a datum you are unsure of puts its error into '
+     + 'everything you peg from it. Set the four corners, then check both '
+     + 'diagonals read ' + f2(o.diag) + ' m — equal diagonals are the only proof '
+     + 'the corners are square.</p>';
+  return h;
 }
 
 /* Tapping a heat cell explains the number rather than just showing it. */
@@ -1500,6 +1639,21 @@ function buildToggles(){
     lab.appendChild(document.createTextNode(l.label));
     box.appendChild(lab);
   });
+}
+
+function buildPegSchedule(){
+  var t = document.getElementById("pegTable");
+  var h = '<tr><th>zone</th><th>fence</th><th>woodland</th><th>size</th><th>diag</th></tr>';
+  ZONES.forEach(function(z){
+    if(z.k === "infra") return;          // an outline round other zones, not a thing to peg
+    var o = setOut(z);
+    h += '<tr><td>' + esc(z.name) + '</td>'
+       + '<td>' + f2(o.x0) + '–' + f2(o.x1) + '</td>'
+       + '<td>' + f2(o.y0) + '–' + f2(o.y1) + '</td>'
+       + '<td>' + f2(o.w) + '×' + f2(o.h) + '</td>'
+       + '<td>' + f2(o.diag) + '</td></tr>';
+  });
+  t.innerHTML = h;
 }
 
 function buildSchedule(){
@@ -1658,6 +1812,7 @@ function checkAgainstDb(){
 buildNav();
 checkAgainstDb();
 buildToggles();
+buildPegSchedule();
 updateHeatUI();
 document.getElementById("theme").addEventListener("click", function(){
   var light = document.body.classList.toggle("light");
