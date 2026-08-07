@@ -1,11 +1,13 @@
-"""Real solar geometry for 52.75°N (§21) and the neighbour-shading rule (§29).
+"""Real solar geometry for 52.76°N (§21) and the neighbour-shading rule (§29).
 
 Verified against known values: 60.7° at midsummer noon, 13.8° at midwinter noon,
-36.8° at the equinox. Deterministic arithmetic over a 19 x 19 grid - no
+36.8° at the equinox. Deterministic arithmetic over a 20 x 18 grid - no
 dependencies, no mapping library.
 
-Coordinates are the plot frame used by the map: x runs across the plot from the
-north-west boundary (the neighbour), y runs up the plot from the gate.
+Coordinates are the V2 plot frame used by the map: x runs across the plot from
+the fenced neighbour (x = 0), y runs from the woodland edge (y = 0) down to the
+gate (y = PLOT_D). Up the plot - decreasing y - is the 070° bearing, so a shadow
+cast toward the top of the drawing has a negative y component.
 """
 
 import math
@@ -15,8 +17,13 @@ from . import config
 from .rules import parse
 
 GRID = 0.6
-GN = int(math.ceil(config.PLOT_W / GRID))
-WOODLAND = {"x": config.PLOT_W, "y": -1.0, "w": 1.5, "d": config.PLOT_D + 2.0, "height_m": 7.0}
+GNX = int(math.ceil(config.PLOT_W / GRID))
+GNY = int(math.ceil(config.PLOT_D / GRID))
+GN = GNX          # kept for callers that only ever indexed the x axis
+# The woodland runs the full length of the front face, off-plot beyond y = 0,
+# and overhangs both ends. Height is assumed, not measured (config.CANOPY_M).
+WOODLAND = {"x": -3.0, "y": -1.5, "w": config.PLOT_W + 6.0, "d": 1.5,
+            "height_m": config.CANOPY_M}
 MONTH_DAY = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349]
 
 
@@ -58,10 +65,17 @@ def daylight_hours(d):
 
 
 def shadow_vector(alt, az):
+    """Shadow direction per metre of height, in the V2 plot frame.
+
+    az is already rotated into the plot frame, where 0 points up the plot. Up
+    the plot is -y here (the gate is at y = PLOT_D), so the y component carries
+    the opposite sign to the x component: at midwinter noon the sun is due
+    south, and shadows run toward the fence and the woodland — -x and -y.
+    """
     if alt <= 0.03:
         return None
     L = min(30.0, 1.0 / math.tan(alt))
-    return (-math.sin(az) * L, -math.cos(az) * L)
+    return (-math.sin(az) * L, math.cos(az) * L)
 
 
 def shadow_length(height, alt):
@@ -124,7 +138,7 @@ def sun_hours(zones, d, step=0.5):
     is in full sun, and the inside of the tunnel is lit through the polythene.
     """
     n = day_of_year(d)
-    grid = [[0.0] * GN for _ in range(GN)]
+    grid = [[0.0] * GNY for _ in range(GNX)]
     hour = 3.0
     while hour <= 21.0:
         alt, az = solar(n, hour)
@@ -135,9 +149,9 @@ def sun_hours(zones, d, step=0.5):
                 p = shadow_polygon(z, sv)
                 if p:
                     casters.append((p, _footprint(z)))
-            for i in range(GN):
+            for i in range(GNX):
                 cx = (i + 0.5) * GRID
-                for j in range(GN):
+                for j in range(GNY):
                     cy = (j + 0.5) * GRID
                     lit = True
                     for poly, (x0, y0, x1, y1) in casters:
@@ -165,11 +179,11 @@ def zone_sun_hours(conn, zone_id, when):
     if z is None:
         return None
     vals = []
-    for i in range(GN):
+    for i in range(GNX):
         cx = (i + 0.5) * GRID
         if not (z["x"] <= cx <= z["x"] + z["w"]):
             continue
-        for j in range(GN):
+        for j in range(GNY):
             cy = (j + 0.5) * GRID
             if z["y"] <= cy <= z["y"] + z["d"]:
                 vals.append(grid[i][j])
@@ -192,7 +206,7 @@ REF_HOUR_FROM, REF_HOUR_TO = 8.0, 16.0
 
 
 def worst_nw_reach(height, day=80):
-    """Worst case is 08:00 at the equinoxes (§29): a 2 m structure reaches 6.0 m.
+    """Worst case is 08:00 at the equinoxes (§29): a 2 m structure reaches 4.5 m.
 
     Scanned from 08:00, not from sunrise. In the ten minutes after the sun clears
     the horizon everything on earth throws a shadow hundreds of metres long, which
@@ -248,11 +262,11 @@ def check_crop_placement(conn, month=4):
             z = next((z for z in zones if z["id"] == zid), None)
             vals = []
             if z:
-                for i in range(GN):
+                for i in range(GNX):
                     cx = (i + 0.5) * GRID
                     if not (z["x"] <= cx <= z["x"] + z["w"]):
                         continue
-                    for j in range(GN):
+                    for j in range(GNY):
                         cy = (j + 0.5) * GRID
                         if z["y"] <= cy <= z["y"] + z["d"]:
                             vals.append(grid[i][j])

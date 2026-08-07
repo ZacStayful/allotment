@@ -13,7 +13,7 @@ from datetime import date
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import (auth, config, db, ledger, money, multipart, photos, planner,
-               priority, rotation, seed, stock, sun, weeds)
+               priority, rotation, seed, seeddata, stock, sun, weeds)
 from .cli import hm, refresh
 from .rules import parse
 
@@ -154,7 +154,7 @@ def page(title, body, sess=None, path="/"):
             "<link rel=icon href='/favicon.ico' type='image/svg+xml'>"
             "<title>%s</title><style>%s</style></head><body><div class=wrap>"
             "<header><div><p class=sub>%s</p><h1>%s</h1></div></header>%s%s"
-            "<p class=foot>Albert Village &middot; 11.4 x 11.4 m &middot; organic only "
+            "<p class=foot>Albert Village &middot; 11.7 x 10.7 m &middot; organic only "
             "&middot; no vehicle access</p></div><script>%s</script></body></html>"
             % (e(title), CSS, e(config.SITE_NAME), e(title), nav, body,
                SHRINK_JS if sess else ""))
@@ -475,6 +475,9 @@ def view_map(conn, sess, q):
                "groups": {k: v for k, v in
                           __import__("allotment.seeddata", fromlist=["x"]).GROUP_NAMES.items()},
                "weeds": weeds.current(conn, zones), "lat": config.LAT,
+               "plot": {"w": config.PLOT_W, "d": config.PLOT_D,
+                        "area": config.PLOT_AREA, "bearing": config.BEARING,
+                        "lat": config.LAT},
                "nav": NAV}
     return doc.replace("/*__PLOT_DATA__*/null",
                        json.dumps(payload).replace("</", "<\\/"))
@@ -814,11 +817,18 @@ def bootstrap(conn):
     A hosted deployment has no shell to run `plot init` in, so the first request
     against an empty database creates the schema and the seed. Seeding is
     idempotent, so two cold starts racing each other is harmless.
+
+    It also re-seeds when the seed itself has moved on. Without that a deployed
+    plot keeps serving the layout it was first seeded with: the V2 survey
+    changed every zone, and a database seeded under V1 would have gone on
+    drawing V1 for ever, however many times the code was redeployed.
     """
     db.init(conn)
-    if not conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]:
+    fresh = not conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"]
+    stale = db.get_setting(conn, "seed_version", None) != seeddata.SEED_VERSION
+    if fresh or stale:
         seed.seed(conn)
-        if db.get_setting(conn, "season_start", None) in (None, "2026-08-01"):
+        if fresh and db.get_setting(conn, "season_start", None) in (None, "2026-08-01"):
             db.set_setting(conn, "season_start", date.today().isoformat())
     if not conn.execute("SELECT COUNT(*) c FROM users").fetchone()["c"]:
         pw = os.environ.get("ALLOTMENT_PASSWORD")

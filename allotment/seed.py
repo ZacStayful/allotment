@@ -10,6 +10,74 @@ def slug(s):
     return re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")[:48]
 
 
+def job_key(job):
+    return job.get("key") or slug(job["title"])
+
+
+def _in(ids):
+    """A SQL IN list for a set of text ids, safe because ids are our own."""
+    return ",".join("'" + str(i).replace("'", "''") + "'" for i in ids) or "''"
+
+
+def retire(conn):
+    """Drop what the seed used to own and no longer does.
+
+    Everything above is an upsert, so a change of layout otherwise leaves the
+    old one behind: a database seeded under the V1 plot and re-seeded under the
+    V2 survey ended up with 37 zones - both plans at once - and trouble pins
+    still at their V1 coordinates. Only ever deletes rows the seed itself put
+    there, and never one carrying real history: a job that has been worked, a
+    crop that has been planted or a zone still referenced keeps its place and
+    is named in the return value instead.
+    """
+    zone_ids = {z[0] for z in seeddata.ZONES}
+    crop_ids = {c[0] for c in seeddata.CROPS}
+    keys = {job_key(j) for j in seeddata.BUILD + seeddata.JOBS}
+    kept = []
+
+    # Rotation rows and derived pins are pure derived data - no history to lose.
+    conn.execute("DELETE FROM rotation WHERE zone_id NOT IN (%s)" % _in(zone_ids))
+    conn.execute("DELETE FROM trouble_pins WHERE source='derived'")
+    for x, y, title, kind, sev, desc, remedy in seeddata.TROUBLE:
+        conn.execute("INSERT INTO trouble_pins(x,y,title,kind,severity,description,"
+                     "remedy,source) VALUES(?,?,?,?,?,?,?,'derived')",
+                     (x, y, title, kind, sev, desc, remedy))
+
+    # Jobs first: they reference both crops and zones. job_runs cascade, so a
+    # job that has ever been worked is history and stays.
+    for r in conn.execute("SELECT id, job_key, title FROM jobs "
+                          "WHERE job_key NOT IN (%s)" % _in(keys)).fetchall():
+        worked = conn.execute("SELECT COUNT(*) c FROM job_runs WHERE job_id=? "
+                              "AND status IS NOT NULL AND status <> 'due'",
+                              (r["id"],)).fetchone()["c"]
+        if worked:
+            kept.append("job %s (%d logged runs)" % (r["job_key"], worked))
+            continue
+        conn.execute("DELETE FROM job_runs WHERE job_id=?", (r["id"],))
+        conn.execute("DELETE FROM jobs WHERE id=?", (r["id"],))
+
+    for r in conn.execute("SELECT id FROM crops WHERE id NOT IN (%s)" % _in(crop_ids)).fetchall():
+        n = conn.execute("SELECT COUNT(*) c FROM plantings WHERE crop_id=?",
+                         (r["id"],)).fetchone()["c"]
+        if n:
+            kept.append("crop %s (%d plantings)" % (r["id"], n))
+            continue
+        conn.execute("DELETE FROM crops WHERE id=?", (r["id"],))
+
+    for r in conn.execute("SELECT id, name FROM zones WHERE id NOT IN (%s)" % _in(zone_ids)).fetchall():
+        holds = 0
+        for table in ("plantings", "jobs", "crops", "weed_observations"):
+            holds += conn.execute("SELECT COUNT(*) c FROM %s WHERE zone_id=?" % table,
+                                  (r["id"],)).fetchone()["c"]
+        if holds:
+            kept.append("zone %s (%d rows still reference it)" % (r["id"], holds))
+            continue
+        conn.execute("DELETE FROM zones WHERE id=?", (r["id"],))
+
+    conn.commit()
+    return kept
+
+
 def seed(conn):
     for k, v in db.DEFAULT_SETTINGS.items():
         if db.get_setting(conn, k, None) is None:
@@ -38,7 +106,7 @@ def seed(conn):
             "harvest_to=excluded.harvest_to,notes=excluded.notes", c)
 
     for job in seeddata.BUILD + seeddata.JOBS:
-        key = job.get("key") or slug(job["title"])
+        key = job_key(job)
         params = dict(job["rule_params"])
         if job.get("requires"):
             # a job that needs a structure or a bed is blocked until it exists
@@ -69,12 +137,6 @@ def seed(conn):
                          "ON CONFLICT(year,zone_id) DO UPDATE SET family_group=excluded.family_group",
                          (year, zid, group))
 
-    if not conn.execute("SELECT COUNT(*) c FROM trouble_pins").fetchone()["c"]:
-        for x, y, title, kind, sev, desc, remedy in seeddata.TROUBLE:
-            conn.execute("INSERT INTO trouble_pins(x,y,title,kind,severity,description,"
-                         "remedy,source) VALUES(?,?,?,?,?,?,?,'derived')",
-                         (x, y, title, kind, sev, desc, remedy))
-
     for s in seeddata.STOCK:
         item = s[0]
         if conn.execute("SELECT 1 FROM stock WHERE item=?", (item,)).fetchone():
@@ -83,7 +145,11 @@ def seed(conn):
                      "expires,organic_certified,bulk_kg,bulk_m3) VALUES(?,?,?,?,?,?,?,?,?,?,?)", s)
 
     conn.commit()
+    kept = retire(conn)
+    db.set_setting(conn, "seed_version", seeddata.SEED_VERSION)
+    conn.commit()
     return {
+        "kept": kept,
         "zones": conn.execute("SELECT COUNT(*) c FROM zones").fetchone()["c"],
         "crops": conn.execute("SELECT COUNT(*) c FROM crops").fetchone()["c"],
         "jobs": conn.execute("SELECT COUNT(*) c FROM jobs").fetchone()["c"],

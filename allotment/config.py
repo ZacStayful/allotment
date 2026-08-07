@@ -3,13 +3,17 @@
 import os
 
 SITE_NAME = "Albert Village Allotment Association"
-LAT = 52.7480
-LON = -1.5000
+LAT = 52.7596
+LON = -1.5535
 ELEVATION_M = 110
-PLOT_W = 11.4          # metres, across the plot
-PLOT_D = 11.4          # metres, up the plot from the gate
-PLOT_AREA = 129.8
-BEARING = 45           # up the plot is north-east
+# The V2 survey. x runs across the plot from the fenced neighbour (x = 0) to the
+# unconfirmed right-hand boundary; y runs from the woodland edge (y = 0) down to
+# the gate (y = PLOT_D). Up the plot — decreasing y — is the 070° bearing.
+PLOT_W = 11.7          # metres, across the plot
+PLOT_D = 10.7          # metres, woodland edge to gate
+PLOT_AREA = 125.2
+BEARING = 70           # up the plot is east-north-east
+CANOPY_M = 8.0         # woodland canopy height — assumed, never measured
 SOIL = "clay"
 SUBSCRIPTION = 46.00   # £/year, renews 1 January
 TAP_OFF_MONTHS = (11, 12, 1, 2, 3)   # water off November to March

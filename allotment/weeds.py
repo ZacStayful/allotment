@@ -9,26 +9,32 @@ knowing.
 import math
 
 from . import config
-from .sun import GN, GRID
+from .sun import GNX, GNY, GRID
 
 DRIVERS = [
     ("woodland seed rain", 1.00),
     ("grass creeping in from the plot edge", 0.85),
-    ("path and hardstanding edge", 0.35),
+    ("path and headland edge", 0.35),
     ("bare ground", 0.45),
     ("proximity to the compost bays", 0.40),
     ("bed perimeter", 0.25),
 ]
 NORMALISER = 2.2
-COMPOST_XY = (9.9, 8.1)
+COMPOST_XY = (10.2, 1.5)
+BEDS = ("bedA", "bed1L", "bed1R", "bed2L", "bed2R", "bed3L", "bed3R")
 
 
 def drivers_at(zones, x, y):
-    """[(name, contribution)] at a point, so the map can explain a score."""
+    """[(name, contribution)] at a point, so the map can explain a score.
+
+    The woodland and the bramble both run along y = 0, so seed rain and the
+    tip-rooting canes fall off with y, not with x - the whole front face is the
+    weedy end, and the gate end is the clean one.
+    """
     out = []
     W, D = config.PLOT_W, config.PLOT_D
 
-    seed_rain = max(0.0, 1 - (W - x) / 4.5) * 1.00
+    seed_rain = max(0.0, 1 - y / 4.5) * 1.00
     if seed_rain > 0:
         out.append(("woodland seed rain", seed_rain))
 
@@ -37,11 +43,13 @@ def drivers_at(zones, x, y):
     if grass > 0:
         out.append(("grass creeping in from the plot edge", grass))
 
-    if x < 2.2:
-        out.append(("path and hardstanding edge", 0.35))
+    for z in zones:
+        if z["id"] in ("spine", "headland") and _inside(z, x, y, 0.3):
+            out.append(("path and headland edge", 0.35))
+            break
 
     for z in zones:
-        if z["id"] in ("spud", "green", "green2") and _inside(z, x, y, 0):
+        if z["id"] in ("phacelia", "nursery") and _inside(z, x, y, 0):
             out.append(("bare or thinly covered ground", 0.45))
             break
 
@@ -51,7 +59,7 @@ def drivers_at(zones, x, y):
         out.append(("proximity to the compost bays", comp))
 
     for z in zones:
-        if z["id"].startswith("b") and len(z["id"]) == 2 and _inside(z, x, y, 0.35):
+        if z["id"] in BEDS and _inside(z, x, y, 0.35):
             out.append(("bed perimeter", 0.25))
             break
 
@@ -64,10 +72,10 @@ def _inside(z, x, y, pad):
 
 
 def predicted(zones):
-    grid = [[0.0] * GN for _ in range(GN)]
-    for i in range(GN):
+    grid = [[0.0] * GNY for _ in range(GNX)]
+    for i in range(GNX):
         x = (i + 0.5) * GRID
-        for j in range(GN):
+        for j in range(GNY):
             y = (j + 0.5) * GRID
             s = sum(v for _, v in drivers_at(zones, x, y))
             grid[i][j] = min(1.0, s / NORMALISER)
@@ -78,12 +86,12 @@ def observed_grid(conn):
     """Observations at points, spread over a 1 m radius. Returns (value, weight)."""
     obs = conn.execute("SELECT x,y,observed FROM weed_observations "
                        "WHERE x IS NOT NULL AND y IS NOT NULL").fetchall()
-    val = [[0.0] * GN for _ in range(GN)]
-    wt = [[0.0] * GN for _ in range(GN)]
+    val = [[0.0] * GNY for _ in range(GNX)]
+    wt = [[0.0] * GNY for _ in range(GNX)]
     for o in obs:
-        for i in range(GN):
+        for i in range(GNX):
             x = (i + 0.5) * GRID
-            for j in range(GN):
+            for j in range(GNY):
                 y = (j + 0.5) * GRID
                 dist = math.hypot(x - o["x"], y - o["y"])
                 if dist > 1.0:
@@ -98,9 +106,9 @@ def current(conn, zones):
     """Predicted, progressively overridden by observation."""
     pred = predicted(zones)
     val, wt = observed_grid(conn)
-    out = [[0.0] * GN for _ in range(GN)]
-    for i in range(GN):
-        for j in range(GN):
+    out = [[0.0] * GNY for _ in range(GNX)]
+    for i in range(GNX):
+        for j in range(GNY):
             w = wt[i][j]
             if w <= 0:
                 out[i][j] = pred[i][j]
@@ -119,11 +127,11 @@ def zone_pressure(conn, zones=None):
     out = []
     for z in zones:
         vals = []
-        for i in range(GN):
+        for i in range(GNX):
             x = (i + 0.5) * GRID
             if not (z["x"] <= x <= z["x"] + z["w"]):
                 continue
-            for j in range(GN):
+            for j in range(GNY):
                 y = (j + 0.5) * GRID
                 if z["y"] <= y <= z["y"] + z["d"]:
                     vals.append(grid[i][j])
