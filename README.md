@@ -143,9 +143,15 @@ These come from the tenancy documents and are not advisory.
 
 ## The map
 
-`plot serve`, then open `/map` — the V2 survey drawing, at 1:20. Six layers over
-one footprint: beds and paths, the four-course rotation, sun and shade, water and
-hose reach, the barrow route, and the site rules.
+`plot serve`, then open `/map` — the V2 survey drawing, at 1:20. Eight layers
+over one footprint: beds and paths, the four-course rotation, sun and shade,
+water and hose reach, the barrow route, trouble spots, neighbour shading and the
+site rules. Plus two heat maps — sun hours and weed pressure — which are
+per-square models, so only one can be read at a time.
+
+Everything is tappable and keyboard-reachable. A bed gives its rotation group,
+companions and what is in the ground right now; a heat square gives the number
+and what drives it; a trouble pin gives the risk and the remedy.
 
 The plot frame is the drawing's: x = 0 is the fenced neighbour, y = 0 is the
 woodland edge, y = 10.7 is the gate, and up the drawing is the 070° bearing.
@@ -159,7 +165,7 @@ inside the fence is for.
 
 Sun hours are sampled every 30 minutes over a 20 × 18 grid of 0.6 m cells. The
 same arithmetic runs in Python (`allotment/sun.py`) and in the page, and the two
-agree on shadow direction to three decimal places.
+agree exactly: all 356 cells of the April grid match to the decimal.
 
 Zone geometry lives in the database, seeded from the same coordinates the drawing
 uses, so the two cannot drift apart — and if they ever do, the page says so at

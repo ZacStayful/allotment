@@ -102,6 +102,30 @@ nav#appnav a[aria-current="page"]{background:var(--sun);border-color:var(--sun);
 .notice p{margin:0 0 7px;font-size:13px;color:#E4D3CE}
 .notice p:last-child{margin-bottom:0}
 
+.toolbar{display:flex;justify-content:flex-end;margin:-6px 0 12px}
+.toolbar button{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;
+  text-transform:uppercase;padding:7px 12px;background:transparent;color:#B7CFCB;
+  border:1px solid var(--rule);border-radius:2px;cursor:pointer}
+.toolbar button:hover{background:var(--sun);border-color:var(--sun);color:#16292E}
+
+/* Outdoors in daylight the dark board is unreadable. Same drawing, lighter page. */
+body.light{--board:#EDEFE9;--board-2:#FFFFFF;--rule:rgba(20,48,46,.18);--head:#3E6360;
+  color:#14302E}
+body.light header .coords,body.light .sub,body.light .card .sub{color:#4A6260}
+body.light .toggles label,body.light details li,body.light details p{color:#26403D}
+body.light #detail h3,body.light .card h2{color:#14302E}
+body.light .card h2{color:#3E6360}
+body.light .btnrow button,body.light nav#appnav a,body.light .toolbar button{color:#2C4A47}
+body.light input[type=number]{background:#F6F8F4;color:#14302E}
+body.light table.sched td+td{color:#3E6360}
+body.light .legend{color:#3E6360}
+body.light .notice p{color:#5A2E24}
+
+.legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:10px;
+  font-family:var(--mono);font-size:10.5px;color:#B7CFCB}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:11px;height:11px;display:inline-block;border:1px solid rgba(127,169,166,.35)}
+
 .hidden{display:none}
 
 @media (max-width:1020px){
@@ -125,10 +149,11 @@ nav#appnav a[aria-current="page"]{background:var(--sun);border-color:var(--sun);
     <p class="site">Albert Village Allotment Association · North West Leicestershire</p>
     <h1>Full plot plan — V2</h1>
   </div>
-  <div class="coords">52°45&#39;34.7&quot;N &nbsp;1°33&#39;12.5&quot;W<br>52.7596°N &nbsp;−1.5535°W · 11.7 × 10.7 m</div>
+  <div class="coords" id="coords">52°45&#39;34.7&quot;N &nbsp;1°33&#39;12.5&quot;W<br>52.7596°N &nbsp;−1.5535°W · 11.7 × 10.7 m</div>
 </header>
 
 <nav id="appnav" hidden></nav>
+<div class="toolbar"><button type="button" id="theme">Light</button></div>
 
 <main>
   <div class="sheetwrap">
@@ -161,10 +186,13 @@ nav#appnav a[aria-current="page"]{background:var(--sun);border-color:var(--sun);
         <g id="lyr-base"></g>
         <g id="lyr-zones"></g>
         <g id="lyr-rotation"></g>
+        <g id="lyr-heat"></g>
         <g id="lyr-rules"></g>
         <g id="lyr-haulage"></g>
         <g id="lyr-water"></g>
         <g id="lyr-shade"></g>
+        <g id="lyr-nbr"></g>
+        <g id="lyr-trouble"></g>
         <g id="lyr-edges"></g>
         <g id="lyr-furniture"></g>
       </svg>
@@ -181,6 +209,21 @@ nav#appnav a[aria-current="page"]{background:var(--sun);border-color:var(--sun);
     <div class="card">
       <h2>Layers</h2>
       <div class="toggles" id="toggles"></div>
+    </div>
+
+    <div class="card">
+      <h2>Heat map</h2>
+      <div class="btnrow" id="heatBtns">
+        <button type="button" data-heat="none" aria-pressed="true">Off</button>
+        <button type="button" data-heat="sun" aria-pressed="false">Sun hours</button>
+        <button type="button" data-heat="weed" aria-pressed="false">Weed pressure</button>
+      </div>
+      <div id="heatControls" class="hidden">
+        <label class="fieldlab" for="monthSlider">Month — <span id="monthLabel">April</span></label>
+        <input type="range" id="monthSlider" min="0" max="11" step="1" value="3">
+      </div>
+      <div class="legend" id="heatLegend"></div>
+      <div class="sub" id="heatNote"></div>
     </div>
 
     <div class="card hidden" id="shadeCard">
@@ -433,6 +476,54 @@ var STRUCTS = [
   {id:"beans",  name:"Bean row",        x:2.1,  y:4.9,  w:9.0,  h:0.05, ht:2.0,  mine:true}
 ];
 
+/* Anything tall enough to cast: the same heights the database carries, so the
+   sun-hours grid here and allotment/sun.py agree. Beds are 0.12 m and never
+   reach the 0.25 m threshold. */
+var CASTERS = {shed:2.0, compost:1.0, butts:1.0, tunnel:2.2};
+
+/* --------------------------------------------------------- the 0.6 m grid */
+var GC = 0.6;
+var GNX = Math.ceil(PW / GC);      // 20
+var GNY = Math.ceil(PD / GC);      // 18
+
+/* Trouble spots, matching seeddata.TROUBLE. The served page replaces these
+   with the database's own, which is where added pins will appear. */
+var FALLBACK_PINS = [
+  {x:2.0, y:0.5, t:"Slugs", k:"pest", w:"High",
+   d:"Damp, shaded and against the bramble — the classic slug reservoir. They shelter in the cut-back margin and the compost bays by day, then travel up to 10 m at night.",
+   a:"Patrol after rain, April to June, after dark. Keep the 700 mm margin cut short."},
+  {x:10.2, y:1.5, t:"Compost bays", k:"pest", w:"Medium",
+   d:"Warm, damp and full of organic matter. Slugs breed here, and anything that goes in seeding comes back out spread across the beds.",
+   a:"Never compost a plant that has flowered. Turn monthly — heat kills seed."},
+  {x:5.8, y:0.35, t:"Woodland seed rain", k:"weed", w:"High",
+   d:"Wind-blown birch and willow seed the length of the front face, plus bramble tip-rooting wherever a cane touches soil. The highest weed load on the plot and it never stops.",
+   a:"The 700 mm cut-back margin must stay open anyway. Strim it monthly."},
+  {x:5.85, y:10.2, t:"Mud and compaction", k:"ground", w:"High",
+   d:"The gate headland takes every barrow load, and with no vehicle access that is every bag of compost and the shed itself. Clay compacts fast.",
+   a:"Keep woodchip topped up and never wheel across soft ground when wet."},
+  {x:2.5, y:9.9, t:"Wind exposure", k:"weather", w:"Medium",
+   d:"Prevailing wind is south-westerly and the gate end takes it — the treeline only shelters the woodland end. The polytunnel is the most wind-vulnerable thing on the plot.",
+   a:"Anchor the polythene, check tension quarterly, keep repair tape in the shed."},
+  {x:3.0, y:7.1, t:"Pigeons", k:"bird", w:"High",
+   d:"The brassica row sits under a clear sightline from the trees. Pigeons can strip kale in an afternoon.",
+   a:"Net from the day you plant out, not when damage appears."},
+  {x:2.0, y:5.5, t:"Frost pocket", k:"weather", w:"Low",
+   d:"Cold air drains downhill and pools at the low point.",
+   a:"Fleece tender plants here first. Nothing tender out before the third week of May."},
+  {x:3.0, y:1.4, t:"Dry shadow", k:"water", w:"Medium",
+   d:"Ground within two metres of the treeline is drier all season and full of roots — they take the water first.",
+   a:"Phacelia and shallow-rooted annuals only. Mulch here in spring."},
+  {x:9.0, y:3.5, t:"Tunnel — never rained on", k:"water", w:"Certain",
+   d:"Nothing inside a polytunnel receives rain, ever. The commonest way beginners lose a crop.",
+   a:"Water March to October regardless of the weather. A standing job, not a conditional one."}
+];
+var PIN_COLOUR = {pest:"#8E5FA8", weed:"#8E5FA8", ground:"#B87333",
+                  weather:"#237E8C", bird:"#A8432B", water:"#E0A32C"};
+
+var MONTH_DAY = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349];
+var MONTH_NAME = ["January","February","March","April","May","June","July",
+                  "August","September","October","November","December"];
+
 /* -------------------------------------------------------------- layer state */
 var LAYERS = [
   {id:"zones",    label:"Beds, paths & structures", on:true},
@@ -440,6 +531,8 @@ var LAYERS = [
   {id:"shade",    label:"Sun & shade",              on:false},
   {id:"water",    label:"Water & hose reach",       on:false},
   {id:"haulage",  label:"Barrow route",             on:false},
+  {id:"trouble",  label:"Trouble spots",            on:false},
+  {id:"nbr",      label:"Neighbour shading",        on:false},
   {id:"rules",    label:"Site rules",               on:true}
 ];
 var on = {};
@@ -452,7 +545,12 @@ var state = {
   time: 12,
   year: 1,
   sel: null,
-  spill: 0
+  spill: 0,
+  heat: "none",     // none | sun | weed
+  month: 3,         // April, the month that decides what will grow where
+  sunGrid: null,
+  sunGridKey: "",
+  weedGrid: null
 };
 
 /* -------------------------------------------------------------- svg helpers */
@@ -530,6 +628,137 @@ function vec(t){
   return [Math.sin(a), -Math.cos(a)];
 }
 
+/* Cooper's declination, the same approximation allotment/sun.py uses, so the
+   two models put the sun in the same place on the same day. */
+function declinationForDay(n){
+  return 23.45 * Math.sin(2 * Math.PI * (284 + n) / 365.0);
+}
+
+/* Shadow offset per metre of height, capped as sun.py caps it. */
+function shadowUnit(alt, az){
+  if(alt <= 0.03 * 57.2958) return null;
+  var L = Math.min(30.0, 1.0 / Math.tan(alt * D2R));
+  var dir = vec((az + 180) % 360);
+  return [dir[0] * L, dir[1] * L];
+}
+
+function shadowPolyFor(x, y, w, h, height, sv){
+  if(!sv || height <= 0.25) return null;
+  var base = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+  var moved = base.map(function(p){ return [p[0] + sv[0] * height, p[1] + sv[1] * height]; });
+  var poly = hull(base.concat(moved));
+  return poly.length >= 3 ? poly : null;
+}
+
+function inPoly(px, py, poly){
+  var inside = false, j = poly.length - 1, i;
+  for(i = 0; i < poly.length; i++){
+    var xi = poly[i][0], yi = poly[i][1], xj = poly[j][0], yj = poly[j][1];
+    if((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+    j = i;
+  }
+  return inside;
+}
+
+/* Everything that casts, in one list: the plot's own tall zones plus the
+   woodland wall off the front face. */
+function castersFor(sv){
+  var out = [];
+  ZONES.forEach(function(z){
+    var ht = CASTERS[z.id];
+    if(!ht) return;
+    var p = shadowPolyFor(z.x, z.y, z.w, z.h, ht, sv);
+    if(p) out.push({poly:p, box:[z.x, z.y, z.x + z.w, z.y + z.h]});
+  });
+  var wp = shadowPolyFor(-3.0, -1.5, PW + 6.0, 1.5, state.canopy, sv);
+  if(wp) out.push({poly:wp, box:[-3.0, -1.5, PW + 3.0, 0.0]});
+  return out;
+}
+
+/* Hours of direct sun per 0.6 m cell across a whole day — the port of
+   sun.sun_hours. A structure never shades its own footprint. */
+function sunHoursGrid(dayN){
+  var grid = [], i, j;
+  for(i = 0; i < GNX; i++){ grid[i] = []; for(j = 0; j < GNY; j++) grid[i][j] = 0; }
+  var dec = declinationForDay(dayN);
+  for(var hour = 3.0; hour <= 21.0; hour += 0.5){
+    var sp = sunPos(dec, hour);
+    if(sp.alt <= 0.05) continue;
+    var sv = shadowUnit(sp.alt, sp.az);
+    if(!sv) continue;
+    var casters = castersFor(sv);
+    for(i = 0; i < GNX; i++){
+      var cx = (i + 0.5) * GC;
+      for(j = 0; j < GNY; j++){
+        var cy = (j + 0.5) * GC, lit = true;
+        for(var c = 0; c < casters.length; c++){
+          var b = casters[c].box;
+          if(b[0] <= cx && cx <= b[2] && b[1] <= cy && cy <= b[3]) continue;
+          if(inPoly(cx, cy, casters[c].poly)){ lit = false; break; }
+        }
+        if(lit) grid[i][j] += 0.5;
+      }
+    }
+  }
+  return grid;
+}
+
+/* The weed drivers, mirroring weeds.drivers_at so the off-disk copy says the
+   same thing the server would. Returns [name, contribution] pairs. */
+function weedDriversAt(x, y){
+  var out = [];
+  var rain = Math.max(0, 1 - y / 4.5) * 1.00;
+  if(rain > 0) out.push(["woodland seed rain", rain]);
+  var edge = Math.min(x, PW - x, y, PD - y);
+  var grass = Math.max(0, 1 - edge / 1.2) * 0.85;
+  if(grass > 0) out.push(["grass creeping in from the plot edge", grass]);
+  var hit = function(ids, pad){
+    return ZONES.some(function(z){
+      return ids.indexOf(z.id) > -1 && x >= z.x - pad && x <= z.x + z.w + pad
+             && y >= z.y - pad && y <= z.y + z.h + pad;
+    });
+  };
+  if(hit(["spine", "headland"], 0.3)) out.push(["path and headland edge", 0.35]);
+  if(hit(["phacelia", "nursery"], 0)) out.push(["bare or thinly covered ground", 0.45]);
+  var dc = Math.sqrt(Math.pow(x - 10.2, 2) + Math.pow(y - 1.5, 2));
+  var comp = Math.max(0, 1 - dc / 2.0) * 0.40;
+  if(comp > 0) out.push(["proximity to the compost bays", comp]);
+  if(hit(["bedA","bed1L","bed1R","bed2L","bed2R","bed3L","bed3R"], 0.35))
+    out.push(["bed perimeter", 0.25]);
+  return out;
+}
+
+function weedGridLocal(){
+  var grid = [], i, j;
+  for(i = 0; i < GNX; i++){
+    grid[i] = [];
+    for(j = 0; j < GNY; j++){
+      var s = 0;
+      weedDriversAt((i + 0.5) * GC, (j + 0.5) * GC).forEach(function(d){ s += d[1]; });
+      grid[i][j] = Math.min(1.0, s / 2.2);
+    }
+  }
+  return grid;
+}
+
+/* The served page carries the database's grid, which has real observations
+   blended into it. Off disk we fall back to the prediction alone. */
+function weedGrid(){
+  if(state.weedGrid) return state.weedGrid;
+  var g = (PLOT && PLOT.weeds && PLOT.weeds.length === GNX) ? PLOT.weeds : weedGridLocal();
+  state.weedGrid = g;
+  return g;
+}
+
+function sunGrid(){
+  var key = state.month + "|" + state.bearing + "|" + state.canopy;
+  if(state.sunGridKey !== key){
+    state.sunGrid = sunHoursGrid(MONTH_DAY[state.month]);
+    state.sunGridKey = key;
+  }
+  return state.sunGrid;
+}
+
 function hull(pts){
   var p = pts.slice().sort(function(a,b){ return a[0]-b[0] || a[1]-b[1]; });
   if(p.length < 3) return p;
@@ -556,10 +785,13 @@ function render(){
   drawBase();
   drawZones();
   drawRotation();
+  drawHeat();
   drawRules();
   drawHaulage();
   drawWater();
   drawShade();
+  drawNbr();
+  drawTrouble();
   drawEdges();
   drawFurniture();
   drawDetail();
@@ -584,6 +816,7 @@ function drawZones(){
   g.style.display = on.zones ? "" : "none";
   if(!on.zones){ paint("lyr-zones", ""); return; }
 
+  var dim = state.heat !== "none";
   var s = "";
   ZONES.forEach(function(z){
     var k = KIND[z.k];
@@ -595,12 +828,17 @@ function drawZones(){
 
     s += '<rect data-zone="'+esc(z.id)+'" class="zone"'
        + ' x="'+n(px)+'" y="'+n(py)+'" width="'+n(pw)+'" height="'+n(ph)+'"'
-       + ' fill="'+k.fill+'" fill-opacity="'+(z.k === "infra" ? 0 : k.op)+'"'
+       + ' fill="'+k.fill+'" fill-opacity="'+(z.k === "infra" || dim ? 0 : k.op)+'"'
        + ' stroke="'+stroke+'" stroke-width="'+sw+'"'
+       + ' stroke-opacity="'+(dim ? 0.42 : 1)+'"'
        + (z.k === "infra" ? ' stroke-dasharray="7 4"' : '')
-       + ' tabindex="0" role="button"'
-       + ' aria-label="'+esc(z.name + ", " + z.w + " by " + z.h + " metres, " + area + " square metres")+'"'
-       + ' style="cursor:pointer"/>';
+       + (dim ? ' pointer-events="none"'
+              : ' tabindex="0" role="button"'
+                + ' aria-label="'+esc(z.name + ", " + z.w + " by " + z.h + " metres, "
+                                     + area + " square metres")+'"'
+                + ' style="cursor:pointer"')
+       + '/>';
+    if(dim) return;
 
     if(z.k === "infra"){
       s += txt(px + 2, py - 6, z.name.toUpperCase(), {size:8.5, weight:"600", spacing:"0.1em", fill:C.struct});
@@ -647,13 +885,45 @@ function select(id){
   drawDetail();
 }
 
+/* What is actually in the ground in a zone right now, from the database. */
+function plantingsIn(id){
+  if(!PLOT || !PLOT.plantings) return "";
+  var rows = PLOT.plantings.filter(function(q){ return q.zone_id === id; });
+  if(!rows.length) return "";
+  var h = '<div class="grp">In the ground now</div><p>';
+  h += rows.map(function(q){
+    return esc((q.crop || "?") + (q.variety ? " (" + q.variety + ")" : "")
+             + (q.expected_first_harvest ? ", ready " + q.expected_first_harvest : ""));
+  }).join("; ");
+  return h + "</p>";
+}
+
 /* --- rotation ----------------------------------------------------------- */
-function groupFor(z){ return GROUPS[(z.rot + (state.year - 1)) % 4]; }
+/* The database is the authority on which group a bed carries when it is
+   serving; the drawing's own four-course is the fallback off disk. Names are
+   matched so the panel text and the colours stay together either way. */
+var GROUP_BY_NAME = {};
+GROUPS.forEach(function(g){ GROUP_BY_NAME[g.name.toLowerCase()] = g; });
+
+function groupFor(z){
+  if(PLOT && PLOT.rotation){
+    var plan = PLOT.rotation[state.year] || PLOT.rotation[String(state.year)];
+    var key = plan && plan[z.id];
+    if(key){
+      var label = (PLOT.groups && PLOT.groups[key]) || key;
+      var hit = GROUP_BY_NAME[String(label).toLowerCase()];
+      if(hit) return hit;
+      return {name:String(label), fill:"#6E7B62", crops:"From the database.", comp:""};
+    }
+  }
+  return GROUPS[(z.rot + (state.year - 1)) % 4];
+}
 
 function drawRotation(){
   var g = document.getElementById("lyr-rotation");
-  g.style.display = on.rotation ? "" : "none";
-  if(!on.rotation){ paint("lyr-rotation", ""); return; }
+  var show = on.rotation && state.heat === "none";
+  g.style.display = show ? "" : "none";
+  if(!show){ paint("lyr-rotation", ""); return; }
 
   var s = "";
   ZONES.filter(function(z){ return z.k === "bed"; }).forEach(function(z){
@@ -844,6 +1114,140 @@ function updateShadeUI(sun){
   ps.textContent = "Woodland canopy shadow is not counted — it is not yours.";
 }
 
+/* --- heat maps: sun hours and weed pressure ----------------------------- */
+function sunBand(v, mx){
+  var t = mx ? v / mx : 0;
+  return t > 0.75 ? "#E0A32C" : t > 0.5 ? "#C8912E" : t > 0.25 ? "#8A7A45" : "#5B6560";
+}
+function weedBand(v){
+  return v > 0.7 ? "#8E5FA8" : v > 0.45 ? "#A98CC0" : "#C9C0D4";
+}
+
+function drawHeat(){
+  var g = document.getElementById("lyr-heat");
+  g.style.display = state.heat === "none" ? "none" : "";
+  if(state.heat === "none"){ paint("lyr-heat", ""); return; }
+
+  var grid = state.heat === "sun" ? sunGrid() : weedGrid();
+  var mx = 0;
+  grid.forEach(function(col){ col.forEach(function(v){ if(v > mx) mx = v; }); });
+
+  var s = '<g clip-path="url(#plotClip)">';
+  for(var i = 0; i < GNX; i++){
+    for(var j = 0; j < GNY; j++){
+      var v = grid[i][j];
+      if(v <= 0.001) continue;
+      var fill = state.heat === "sun" ? sunBand(v, mx) : weedBand(v);
+      s += '<rect class="cell" data-i="'+i+'" data-j="'+j+'"'
+         + ' x="'+n(X(i * GC))+'" y="'+n(Y(j * GC))+'"'
+         + ' width="'+n(GC * SCALE + 0.6)+'" height="'+n(GC * SCALE + 0.6)+'"'
+         + ' fill="'+fill+'" fill-opacity="0.72" style="cursor:pointer"'
+         + ' tabindex="0" role="button" aria-label="'+esc(cellLabel(v, i, j))+'"/>';
+    }
+  }
+  s += '</g>';
+  paint("lyr-heat", s);
+
+  var nodes = document.querySelectorAll("#lyr-heat .cell");
+  Array.prototype.forEach.call(nodes, function(el){
+    var i = +el.getAttribute("data-i"), j = +el.getAttribute("data-j");
+    var act = function(){ state.sel = {cell:[i, j]}; drawZones(); drawRotation(); drawDetail(); };
+    el.addEventListener("click", act);
+    el.addEventListener("keydown", function(e){
+      if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
+    });
+  });
+}
+
+function cellLabel(v, i, j){
+  var at = ((i + 0.5) * GC).toFixed(1) + " m across, " + ((j + 0.5) * GC).toFixed(1) + " m down";
+  return state.heat === "sun"
+    ? v.toFixed(1) + " hours of sun at " + at
+    : "weed score " + Math.round(v * 100) + " out of 100 at " + at;
+}
+
+/* --- trouble spots ------------------------------------------------------ */
+function pins(){
+  if(PLOT && PLOT.pins && PLOT.pins.length){
+    return PLOT.pins.map(function(p){
+      return {x:p.x, y:p.y, t:p.title || p.t, k:p.kind || p.k,
+              w:p.severity || p.w, d:p.description || p.d, a:p.remedy || p.a};
+    });
+  }
+  return FALLBACK_PINS;
+}
+
+function drawTrouble(){
+  var g = document.getElementById("lyr-trouble");
+  g.style.display = on.trouble ? "" : "none";
+  if(!on.trouble){ paint("lyr-trouble", ""); return; }
+
+  var s = "";
+  pins().forEach(function(p, idx){
+    var col = PIN_COLOUR[p.k] || C.oxide;
+    var cx = X(p.x), cy = Y(p.y);
+    s += '<g class="pin" data-pin="'+idx+'" style="cursor:pointer" tabindex="0" role="button"'
+       + ' aria-label="'+esc(p.t + ", risk " + p.w)+'">'
+       + '<circle cx="'+n(cx)+'" cy="'+n(cy)+'" r="15" fill="'+col+'" fill-opacity="0.25"/>'
+       + '<circle cx="'+n(cx)+'" cy="'+n(cy)+'" r="7.5" fill="'+col+'"'
+       + ' stroke="'+C.sheet+'" stroke-width="1.6"/></g>';
+  });
+  paint("lyr-trouble", s);
+
+  var nodes = document.querySelectorAll("#lyr-trouble .pin");
+  Array.prototype.forEach.call(nodes, function(el){
+    var idx = +el.getAttribute("data-pin");
+    var act = function(){ state.sel = {pin:idx}; drawZones(); drawRotation(); drawDetail(); };
+    el.addEventListener("click", act);
+    el.addEventListener("keydown", function(e){
+      if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
+    });
+  });
+}
+
+/* --- neighbour shading -------------------------------------------------- */
+/* Worst case for the neighbour is 08:00 at the equinox, which is exactly when
+   they are starting seedlings. Fixed moment, deliberately - this layer answers
+   "will the committee approve it", not "what is happening now". */
+function drawNbr(){
+  var g = document.getElementById("lyr-nbr");
+  g.style.display = on.nbr ? "" : "none";
+  if(!on.nbr){ paint("lyr-nbr", ""); return; }
+
+  var s = "";
+  s += '<rect x="'+n(X(0))+'" y="'+n(Y(0))+'" width="'+n(6.0 * SCALE)+'"'
+     + ' height="'+n(PD * SCALE)+'" fill="'+C.oxide+'" fill-opacity="0.11"/>';
+  s += '<line x1="'+n(X(6.0))+'" y1="'+n(Y(0))+'" x2="'+n(X(6.0))+'" y2="'+n(Y(PD))+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="2" stroke-dasharray="6 4"/>';
+
+  var sp = sunPos(declinationForDay(80), 8.0);
+  var sv = shadowUnit(sp.alt, sp.az);
+  var worst = 0;
+  if(sv){
+    s += '<g clip-path="url(#plotClip)">';
+    ZONES.forEach(function(z){
+      var ht = CASTERS[z.id];
+      if(!ht) return;
+      var p = shadowPolyFor(z.x, z.y, z.w, z.h, ht, sv);
+      if(!p) return;
+      p.forEach(function(q){ if(q[0] < 0 && q[1] >= 0 && q[1] <= PD) worst = Math.max(worst, -q[0]); });
+      s += '<polygon points="'
+         + p.map(function(q){ return n(X(q[0])) + "," + n(Y(q[1])); }).join(" ")
+         + '" fill="'+C.oxide+'" fill-opacity="0.4" stroke="'+C.oxide+'"'
+         + ' stroke-opacity="0.75" pointer-events="none"/>';
+    });
+    s += '</g>';
+  }
+  s += txt(X(3.0), Y(PD / 2) - 8, "NO TALL STRUCTURES",
+           {size:11, weight:"700", fill:C.oxide, anchor:"middle", halo:1});
+  s += txt(X(3.0), Y(PD / 2) + 8, "within 6 m of the boundary",
+           {size:9, weight:"600", fill:C.oxide, anchor:"middle", halo:1});
+  s += txt(X(3.0), Y(PD / 2) + 26, "shadows at 08:00, 21 March",
+           {size:8.5, weight:"600", fill:C.inkSoft, anchor:"middle", halo:1});
+  paint("lyr-nbr", s);
+  state.nbrWorst = worst;
+}
+
 /* --- boundaries and gate ------------------------------------------------ */
 function drawEdges(){
   var s = "";
@@ -963,6 +1367,10 @@ function drawFurniture(){
 /* ------------------------------------------------------------ detail panel */
 function drawDetail(){
   var body = document.getElementById("detailBody");
+
+  if(state.sel && state.sel.cell){ return detailForCell(body, state.sel.cell); }
+  if(state.sel && typeof state.sel.pin === "number"){ return detailForPin(body, state.sel.pin); }
+
   var z = null;
   ZONES.forEach(function(q){ if(q.id === state.sel) z = q; });
 
@@ -989,7 +1397,87 @@ function drawDetail(){
     h += '<p>Tomatoes, all varieties, full season. Basil interplanted between every tomato plant. '
        + 'French marigolds in pots at the tunnel ends — not in the ground, so they stay moveable.</p>';
   }
+  h += plantingsIn(z.id);
   body.innerHTML = h;
+}
+
+/* Tapping a heat cell explains the number rather than just showing it. */
+function detailForCell(body, cell){
+  var i = cell[0], j = cell[1];
+  var x = (i + 0.5) * GC, y = (j + 0.5) * GC;
+  var at = x.toFixed(1) + " m across, " + y.toFixed(1) + " m from the woodland";
+  var h = "";
+
+  if(state.heat === "sun"){
+    var v = sunGrid()[i][j];
+    h += '<h3>Direct sun here</h3>';
+    h += '<div class="meta">' + esc(v.toFixed(1) + " hours on " + MONTH_NAME[state.month]
+       + " 15th · " + at) + '</div>';
+    h += '<p>' + esc(
+        v >= 6 ? "Full sun. Anything will grow here."
+      : v >= 4 ? "Good light. Fine for most crops, though fruiting plants would rather have more."
+      : v >= 2 ? "Part shade. Leafy crops cope; tomatoes and squash will not be happy."
+               : "Deep shade. Storage, compost or the bramble margin — not a bed.") + '</p>';
+  } else {
+    var w = weedGrid()[i][j];
+    var drivers = weedDriversAt(x, y);
+    h += '<h3>' + (w > 0.7 ? "High" : w > 0.45 ? "Moderate" : "Low") + ' weed pressure</h3>';
+    h += '<div class="meta">' + esc("Score " + Math.round(w * 100) + "/100 · " + at) + '</div>';
+    h += '<p>' + (drivers.length
+        ? "Driven by: " + esc(drivers.map(function(d){ return d[0]; }).join(", ")) + ". "
+        : "Well covered and away from the edges. ")
+      + esc(w > 0.7 ? "Expect to weed this every visit through spring. Mulch heavily or keep it covered."
+          : w > 0.45 ? "Worth a look every visit, but it should not get away from you."
+                     : "The 20-minute arrival weed should keep on top of this.") + '</p>';
+    if(PLOT && PLOT.weeds){
+      h += '<p class="sub">Prediction, corrected by what you have actually logged.</p>';
+    }
+  }
+  body.innerHTML = h;
+}
+
+function detailForPin(body, idx){
+  var p = pins()[idx];
+  if(!p){ body.innerHTML = '<p class="empty">Tap any area on the plan</p>'; return; }
+  var h = '<h3>' + esc(p.t) + '</h3>';
+  h += '<div class="meta">' + esc("Risk: " + p.w) + '</div>';
+  h += '<p>' + esc(p.d) + '</p>';
+  h += '<div class="grp">What to do</div><p>' + esc(p.a) + '</p>';
+  body.innerHTML = h;
+}
+
+/* ------------------------------------------------------------ heat map UI */
+var SUN_LEGEND = [["#E0A32C","most sun"], ["#C8912E","good"],
+                  ["#8A7A45","part shade"], ["#5B6560","least"]];
+var WEED_LEGEND = [["#8E5FA8","high"], ["#A98CC0","moderate"], ["#C9C0D4","low"]];
+
+function updateHeatUI(){
+  var leg = document.getElementById("heatLegend");
+  var note = document.getElementById("heatNote");
+  document.getElementById("heatControls").classList.toggle("hidden", state.heat !== "sun");
+
+  if(state.heat === "none"){
+    leg.innerHTML = "";
+    note.textContent = "Sun hours and weed pressure are per-square models. "
+                     + "Only one can be read at a time.";
+    return;
+  }
+  var rows = state.heat === "sun" ? SUN_LEGEND : WEED_LEGEND;
+  leg.innerHTML = rows.map(function(r){
+    return '<span><i style="background:' + r[0] + '"></i>' + esc(r[1]) + '</span>';
+  }).join("");
+
+  if(state.heat === "sun"){
+    var g = sunGrid(), lo = 99, hi = 0;
+    g.forEach(function(col){ col.forEach(function(v){ if(v < lo) lo = v; if(v > hi) hi = v; }); });
+    note.textContent = "Direct sun on " + MONTH_NAME[state.month] + " 15th, sampled every "
+      + "30 minutes over 0.6 m squares: " + lo.toFixed(1) + " to " + hi.toFixed(1)
+      + " hours. Tap a square.";
+  } else {
+    note.textContent = (PLOT && PLOT.weeds)
+      ? "Predicted from the plot's shape and surroundings, corrected by what you have logged. Tap a square."
+      : "Predicted from the plot's shape and surroundings. Open this from the app to blend in logged observations.";
+  }
 }
 
 /* ---------------------------------------------------------------- panel UI */
@@ -1069,6 +1557,32 @@ function bindControls(){
     updateYearSub();
   });
 
+  document.getElementById("heatBtns").addEventListener("click", function(e){
+    var b = e.target.closest("button");
+    if(!b) return;
+    state.heat = b.getAttribute("data-heat");
+    if(state.sel && (state.sel.cell || typeof state.sel.pin === "number")) state.sel = null;
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
+      x.setAttribute("aria-pressed", String(x === b));
+    });
+    // the zones dim and stop taking clicks under a heat map, so they have to
+    // be redrawn when one goes on or off, not just the heat layer itself
+    drawZones();
+    drawRotation();
+    drawHeat();
+    updateHeatUI();
+    drawDetail();
+  });
+
+  var ms = document.getElementById("monthSlider");
+  ms.addEventListener("input", function(){
+    state.month = parseInt(ms.value, 10);
+    document.getElementById("monthLabel").textContent = MONTH_NAME[state.month];
+    drawHeat();
+    updateHeatUI();
+    drawDetail();
+  });
+
   var bi = document.getElementById("bearingInput");
   bi.addEventListener("input", function(){
     var v = parseInt(bi.value, 10);
@@ -1076,6 +1590,8 @@ function bindControls(){
     state.bearing = ((v % 360) + 360) % 360;
     drawFurniture();
     drawShade();
+    drawNbr();
+    if(state.heat === "sun"){ drawHeat(); updateHeatUI(); }
   });
 
   var ci = document.getElementById("canopyInput");
@@ -1085,6 +1601,7 @@ function bindControls(){
     state.canopy = v;
     drawBase();
     drawShade();
+    if(state.heat === "sun"){ drawHeat(); updateHeatUI(); }
   });
 }
 
@@ -1141,6 +1658,12 @@ function checkAgainstDb(){
 buildNav();
 checkAgainstDb();
 buildToggles();
+updateHeatUI();
+document.getElementById("theme").addEventListener("click", function(){
+  var light = document.body.classList.toggle("light");
+  this.textContent = light ? "Dark" : "Light";
+  this.setAttribute("aria-pressed", String(light));
+});
 buildSchedule();
 bindControls();
 updateYearSub();
