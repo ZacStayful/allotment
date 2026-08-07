@@ -14,7 +14,7 @@ from datetime import date, timedelta
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from allotment import (auth, config, db, ledger, money, priority, rotation,
-                       rules, seed, stock, sun, weeds)
+                       rules, seed, seeddata, stock, sun, weeds)
 from allotment.weather import Weather
 
 
@@ -401,6 +401,59 @@ class TestMoney(Base):
     def test_unknown_budget_line_is_refused(self):
         with self.assertRaises(ValueError):
             money.add_spend(self.conn, 10, "beer")
+
+
+class TestReseed(Base):
+    """A layout change has to retire the old layout, not sit on top of it.
+
+    seed() is all upserts, so before this the V2 survey landed on a V1 database
+    as 37 zones - both plans at once - with the trouble pins still at their V1
+    coordinates. The hosted copy has no shell to re-seed from, so it has to
+    happen on its own.
+    """
+
+    def stale_zone(self):
+        self.conn.execute(
+            "INSERT INTO zones(id,name,type,area_m2,x,y,w,d,height_m,growable,colour) "
+            "VALUES('ghost','Ghost bed','bed',2.0,1.0,1.0,2.0,1.0,0.0,1,'#000')")
+        self.conn.commit()
+
+    def test_a_zone_the_seed_no_longer_has_is_retired(self):
+        self.stale_zone()
+        self.assertIsNotNone(
+            self.conn.execute("SELECT 1 FROM zones WHERE id='ghost'").fetchone())
+        seed.seed(self.conn)
+        self.assertIsNone(
+            self.conn.execute("SELECT 1 FROM zones WHERE id='ghost'").fetchone(),
+            "a zone dropped from the seed should not survive a re-seed")
+
+    def test_a_zone_carrying_history_is_kept_and_reported(self):
+        self.stale_zone()
+        self.conn.execute("INSERT INTO plantings(crop_id,zone_id,planted_date,status) "
+                          "VALUES('kale','ghost','2027-03-01','growing')")
+        self.conn.commit()
+        kept = seed.seed(self.conn)["kept"]
+        self.assertIsNotNone(
+            self.conn.execute("SELECT 1 FROM zones WHERE id='ghost'").fetchone(),
+            "a zone something still points at must not be deleted under it")
+        self.assertTrue(any("ghost" in k for k in kept), kept)
+
+    def test_derived_pins_move_with_the_seed_but_added_ones_stay(self):
+        self.conn.execute("INSERT INTO trouble_pins(x,y,title,source) "
+                          "VALUES(5.0,5.0,'Mine','observed')")
+        self.conn.execute("UPDATE trouble_pins SET x=99 WHERE source='derived'")
+        self.conn.commit()
+        seed.seed(self.conn)
+        moved = self.conn.execute(
+            "SELECT COUNT(*) c FROM trouble_pins WHERE x=99").fetchone()["c"]
+        self.assertEqual(moved, 0, "derived pins should be replaced from the seed")
+        self.assertIsNotNone(
+            self.conn.execute("SELECT 1 FROM trouble_pins WHERE source='observed'").fetchone(),
+            "a pin you added yourself is not the seed's to delete")
+
+    def test_the_seed_version_is_recorded(self):
+        self.assertEqual(db.get_setting(self.conn, "seed_version", None),
+                         seeddata.SEED_VERSION)
 
 
 class TestRotation(Base):

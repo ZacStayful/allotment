@@ -2,7 +2,14 @@
 
 Geometry is the single source of truth for both the sun model and the map,
 so the drawing and the arithmetic can never disagree.
+
+Bump SEED_VERSION whenever the layout changes. A hosted deployment has no shell
+to re-seed from, so the app compares this against what the database was last
+seeded with and brings it up to date on the next request - otherwise a plot that
+has been re-surveyed keeps serving the layout it was first seeded with.
 """
+
+SEED_VERSION = "2026-08-v2-survey"
 
 # id, name, type, x, y, w, d, height, growable, colour, notes
 #

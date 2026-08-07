@@ -88,6 +88,10 @@ def cmd_init(args):
                 print("Write it down - it is not stored anywhere in plain text.")
     print("Seeded: %(zones)d zones, %(crops)d crops, %(jobs)d jobs, %(stock)d stock lines"
           % counts)
+    # A re-seed after a layout change retires what the seed no longer owns, but
+    # never anything carrying history. Say what it had to leave behind.
+    for line in counts.get("kept") or []:
+        print("Kept (has history): %s" % line)
     today = date.today()
     wx, err = refresh(conn, today, args.offline)
     if err:
