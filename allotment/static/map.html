@@ -132,6 +132,43 @@ body.light table.sched td+td{color:#3E6360}
 body.light .legend{color:#3E6360}
 body.light .notice p{color:#5A2E24}
 
+/* The setting-out detail. Paper card, dark ink, big figures - it is read
+   standing on the plot with a tape, often in sunlight, and printed. */
+.pegout{background:var(--sheet);color:var(--ink);border-radius:3px;margin-top:14px;
+  padding:16px 18px 18px;box-shadow:0 8px 26px rgba(0,0,0,.35)}
+.pegprompt{margin:0;font-family:var(--mono);font-size:12.5px;letter-spacing:.06em;
+  color:var(--ink-soft);text-align:center;padding:14px 0}
+.peghead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;
+  border-bottom:1.5px solid var(--ink);padding-bottom:9px;margin-bottom:14px}
+.peghead h2{margin:0;font-size:19px;font-weight:800;letter-spacing:-.01em;color:var(--ink)}
+.peghead .tag{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.2em;
+  text-transform:uppercase;color:#fff;background:var(--oxide);padding:4px 8px;border-radius:2px}
+.pegbody{display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap}
+.pegdiag{flex:1 1 340px;min-width:300px}
+.pegdiag svg{width:100%;height:auto;display:block}
+.pegnums{flex:1 1 300px;min-width:280px}
+.corners{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.corner{border:1.5px solid var(--ink);border-radius:2px;padding:8px 10px}
+.corner b{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.16em;
+  color:var(--ink-soft);margin-bottom:4px}
+.corner .v{font-family:var(--mono);font-size:19px;font-weight:700;letter-spacing:-.01em;
+  line-height:1.25}
+.corner .v small{font-size:11px;font-weight:600;color:var(--ink-soft);letter-spacing:.04em}
+.pegkey{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.pegkey div{flex:1 1 120px;border:1.5px solid var(--ink);border-radius:2px;padding:8px 10px}
+.pegkey b{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft);margin-bottom:3px}
+.pegkey span{font-family:var(--mono);font-size:20px;font-weight:800}
+.pegkey .check{background:var(--oxide);border-color:var(--oxide);color:#fff}
+.pegkey .check b,.pegkey .check span{color:#fff}
+.pegsteps{margin:0;padding-left:20px;font-size:14px;line-height:1.55;color:var(--ink)}
+.pegsteps li{margin-bottom:5px}
+.pegsteps b{font-family:var(--mono);font-weight:700}
+@media (max-width:560px){
+  .corners{grid-template-columns:1fr}
+  .pegdiag,.pegnums{min-width:0;flex-basis:100%}
+}
+
 .legend{display:flex;flex-wrap:wrap;gap:7px 14px;margin-top:10px;
   font-family:var(--mono);font-size:10.5px;color:#B7CFCB}
 .legend span{display:flex;align-items:center;gap:5px}
@@ -221,6 +258,10 @@ body.light .notice p{color:#5A2E24}
         <g id="lyr-furniture"></g>
       </svg>
     </div>
+
+    <section class="pegout" id="pegOut" aria-live="polite">
+      <p class="pegprompt">Tap any area on the plan to see how to peg it out.</p>
+    </section>
   </div>
 
   <aside class="panel">
@@ -832,6 +873,7 @@ function render(){
   drawSetOut();
   drawEdges();
   drawFurniture();
+  drawPegOut();
   drawDetail();
 }
 
@@ -921,6 +963,7 @@ function select(id){
   drawZones();
   drawRotation();
   drawSetOut();
+  drawPegOut();
   drawDetail();
 }
 
@@ -1190,7 +1233,7 @@ function drawHeat(){
   var nodes = document.querySelectorAll("#lyr-heat .cell");
   Array.prototype.forEach.call(nodes, function(el){
     var i = +el.getAttribute("data-i"), j = +el.getAttribute("data-j");
-    var act = function(){ state.sel = {cell:[i, j]}; drawZones(); drawRotation(); drawSetOut(); drawDetail(); };
+    var act = function(){ state.sel = {cell:[i, j]}; drawZones(); drawRotation(); drawSetOut(); drawPegOut(); drawDetail(); };
     el.addEventListener("click", act);
     el.addEventListener("keydown", function(e){
       if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
@@ -1236,7 +1279,7 @@ function drawTrouble(){
   var nodes = document.querySelectorAll("#lyr-trouble .pin");
   Array.prototype.forEach.call(nodes, function(el){
     var idx = +el.getAttribute("data-pin");
-    var act = function(){ state.sel = {pin:idx}; drawZones(); drawRotation(); drawSetOut(); drawDetail(); };
+    var act = function(){ state.sel = {pin:idx}; drawZones(); drawRotation(); drawSetOut(); drawPegOut(); drawDetail(); };
     el.addEventListener("click", act);
     el.addEventListener("keydown", function(e){
       if(e.key === "Enter" || e.key === " " || e.key === "Spacebar"){ e.preventDefault(); act(); }
@@ -1317,14 +1360,14 @@ function selectedZone(){
 
 /* A dimension line with end ticks and a haloed figure, the way it would be
    drawn on paper. */
-function dimLine(ax, ay, bx, by, label, vertical){
+function dimLine(ax, ay, bx, by, label, vertical, size){
   var s = '';
   s += '<line x1="'+n(ax)+'" y1="'+n(ay)+'" x2="'+n(bx)+'" y2="'+n(by)+'"'
      + ' stroke="'+C.ink+'" stroke-width="1" marker-start="url(#tick)"'
      + ' marker-end="url(#tick)"/>';
   var mx = (ax + bx) / 2, my = (ay + by) / 2;
-  s += txt(vertical ? mx : mx, vertical ? my : my - 5, label,
-           {size:9, weight:"700", fill:C.ink, anchor:"middle", halo:1,
+  s += txt(mx, vertical ? my : my - (size || 9) * 0.6, label,
+           {size:size || 9, weight:"700", fill:C.ink, anchor:"middle", halo:1,
             rotate: vertical ? -90 : undefined});
   return s;
 }
@@ -1347,17 +1390,106 @@ function drawSetOut(){
   if(o.y0 > 0.02){
     s += dimLine(midX, Y(0), midX, Y(o.y0), f2(o.y0), true);
   }
-  // the sides themselves, set just outside the box
-  s += dimLine(X(o.x0), Y(o.y1) + 13, X(o.x1), Y(o.y1) + 13, f2(o.w), false);
-  s += dimLine(X(o.x1) + 13, Y(o.y0), X(o.x1) + 13, Y(o.y1), f2(o.h), true);
-
-  // the diagonal, which is what proves it square
-  s += '<line x1="'+n(X(o.x0))+'" y1="'+n(Y(o.y0))+'" x2="'+n(X(o.x1))+'" y2="'+n(Y(o.y1))+'"'
-     + ' stroke="'+C.ink+'" stroke-width="0.8" stroke-dasharray="4 3" stroke-opacity="0.65"/>';
-  s += txt(X(z.x + z.w / 2) + 6, Y(z.y + z.h / 2) - 6, "diag " + f2(o.diag),
-           {size:8.5, weight:"700", fill:C.ink, halo:1});
-
   paint("lyr-setout", s);
+}
+
+/* --- the setting-out card under the drawing ----------------------------- */
+/* Its own drawing rather than an overlay. On the plan these figures compete
+   with twenty other zones and every label already there; on their own, at the
+   size of the page, they can be read at arm's length with a tape in the other
+   hand. */
+function pegDiagram(z){
+  var o = setOut(z);
+  var BOXW = 330, BOXH = 165;
+  var k = Math.min(BOXW / o.w, BOXH / o.h);
+  var rw = o.w * k, rh = o.h * k;
+  var ox = 210, oy = 132;
+  var fenceX = 88, woodY = 66;
+  var VW = Math.max(520, ox + rw + 130);
+  var VH = Math.max(320, oy + rh + 92);
+  var DS = 13;                     // dimension figures, sized for arm's length
+
+  var s = '<svg viewBox="0 0 ' + VW + ' ' + VH + '" role="img" aria-label="'
+        + esc("Setting out " + z.name) + '">';
+
+  // the two datums, drawn as they are on the plan
+  s += '<line x1="'+fenceX+'" y1="34" x2="'+fenceX+'" y2="'+(VH-18)+'" stroke="'+C.oxide+'" stroke-width="3"/>';
+  s += txt(fenceX - 11, (VH + 14) / 2, "FENCED BOUNDARY",
+           {size:10.5, weight:"700", spacing:"0.14em", fill:C.oxide, anchor:"middle", rotate:-90});
+  s += '<line x1="'+(fenceX-34)+'" y1="'+woodY+'" x2="'+(VW-18)+'" y2="'+woodY+'" stroke="'+C.wood+'" stroke-width="3"/>';
+  s += txt(fenceX + 12, woodY - 10, "WOODLAND EDGE",
+           {size:10.5, weight:"700", spacing:"0.14em", fill:C.wood});
+
+  // the zone itself
+  s += '<rect x="'+n(ox)+'" y="'+n(oy)+'" width="'+n(rw)+'" height="'+n(rh)+'"'
+     + ' fill="'+C.sun+'" fill-opacity="0.22" stroke="'+C.ink+'" stroke-width="2.4"/>';
+
+  // both diagonals - the check that it is square, not a parallelogram
+  s += '<line x1="'+n(ox)+'" y1="'+n(oy)+'" x2="'+n(ox+rw)+'" y2="'+n(oy+rh)+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="1.4" stroke-dasharray="6 4"/>';
+  s += '<line x1="'+n(ox+rw)+'" y1="'+n(oy)+'" x2="'+n(ox)+'" y2="'+n(oy+rh)+'"'
+     + ' stroke="'+C.oxide+'" stroke-width="1.4" stroke-dasharray="6 4"/>';
+
+  // offsets from each datum to the near face
+  s += dimLine(fenceX, oy + rh / 2, ox, oy + rh / 2, f2(o.x0), false, DS);
+  s += dimLine(ox + rw / 2, woodY, ox + rw / 2, oy, f2(o.y0), true, DS);
+
+  // the sides
+  s += dimLine(ox, oy + rh + 36, ox + rw, oy + rh + 36, f2(o.w) + " m", false, DS);
+  s += dimLine(ox + rw + 40, oy, ox + rw + 40, oy + rh, f2(o.h) + " m", true, DS);
+
+  // corners, lettered to match the boxes underneath
+  var pts = [["A", ox, oy], ["B", ox + rw, oy], ["C", ox, oy + rh], ["D", ox + rw, oy + rh]];
+  pts.forEach(function(p){
+    s += '<circle cx="'+n(p[1])+'" cy="'+n(p[2])+'" r="5.5" fill="'+C.ink+'"/>';
+    var dx = (p[0] === "A" || p[0] === "C") ? -15 : 15;
+    var dy = (p[0] === "A" || p[0] === "B") ? -12 : 20;
+    s += txt(p[1] + dx, p[2] + dy, p[0],
+             {size:14, weight:"800", fill:C.ink, anchor:"middle", halo:1});
+  });
+  s += '</svg>';
+  return s;
+}
+
+function drawPegOut(){
+  var el = document.getElementById("pegOut");
+  var z = selectedZone();
+  if(!z){
+    el.innerHTML = '<p class="pegprompt">Tap any area on the plan to see how to peg it out.</p>';
+    return;
+  }
+  var o = setOut(z);
+  var h = "";
+  h += '<div class="peghead"><h2>' + esc(z.name) + '</h2>'
+     + '<span class="tag">peg this out</span></div>';
+  h += '<div class="pegbody">';
+  h += '<div class="pegdiag">' + pegDiagram(z) + '</div>';
+
+  h += '<div class="pegnums">';
+  h += '<div class="pegkey">'
+     + '<div><b>along the fence</b><span>' + f2(o.w) + ' m</span></div>'
+     + '<div><b>woodland to gate</b><span>' + f2(o.h) + ' m</span></div>'
+     + '<div class="check"><b>both diagonals</b><span>' + f2(o.diag) + ' m</span></div>'
+     + '</div>';
+
+  h += '<div class="corners">';
+  [["A", o.x0, o.y0], ["B", o.x1, o.y0], ["C", o.x0, o.y1], ["D", o.x1, o.y1]].forEach(function(c){
+    h += '<div class="corner"><b>corner ' + c[0] + '</b><div class="v">'
+       + f2(c[1]) + ' <small>along fence</small><br>'
+       + f2(c[2]) + ' <small>off woodland</small></div></div>';
+  });
+  h += '</div>';
+
+  h += '<ol class="pegsteps">';
+  h += '<li>Run a line along the fence from the woodland corner. That is your zero.</li>';
+  h += '<li>Mark <b>' + f2(o.x0) + ' m</b> and <b>' + f2(o.x1) + ' m</b> along it.</li>';
+  h += '<li>Square off from each mark and measure <b>' + f2(o.y0) + ' m</b> for A and B, '
+     + 'then <b>' + f2(o.y1) + ' m</b> for C and D.</li>';
+  h += '<li>Check both diagonals read <b>' + f2(o.diag) + ' m</b>. If they differ, the corners '
+     + 'are not square — shift them until they match.</li>';
+  h += '</ol>';
+  h += '</div></div>';
+  el.innerHTML = h;
 }
 
 /* --- boundaries and gate ------------------------------------------------ */
@@ -1715,7 +1847,10 @@ function bindControls(){
     var b = e.target.closest("button");
     if(!b) return;
     state.heat = b.getAttribute("data-heat");
-    if(state.sel && (state.sel.cell || typeof state.sel.pin === "number")) state.sel = null;
+    // zones dim out of reach under a heat map, so any selection is now stale -
+    // leaving the peg card up for something you can no longer see highlighted
+    // is worse than clearing it
+    state.sel = null;
     Array.prototype.forEach.call(this.querySelectorAll("button"), function(x){
       x.setAttribute("aria-pressed", String(x === b));
     });
@@ -1724,6 +1859,8 @@ function bindControls(){
     drawZones();
     drawRotation();
     drawHeat();
+    drawSetOut();
+    drawPegOut();
     updateHeatUI();
     drawDetail();
   });
